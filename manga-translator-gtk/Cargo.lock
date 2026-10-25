@@ -969,6 +969,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "manga-translator-core"
+version = "0.2.1"
+dependencies = [
+ "base64",
+ "dirs",
+ "gettext-rs",
+ "hotpath",
+ "log",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "manga-translator-gtk"
 version = "0.2.1"
 dependencies = [
@@ -986,6 +999,7 @@ dependencies = [
  "hotpath",
  "libadwaita",
  "log",
+ "manga-translator-core",
  "pango",
  "serde",
  "serde_json",

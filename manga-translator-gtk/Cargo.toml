@@ -6,6 +6,8 @@ description = "Manga Image Translator — GTK4/libadwaita GUI (Rust)"
 license = "MIT"
 
 [dependencies]
+manga-translator-core = { path = "../manga-translator-core" }
+
 gtk = { package = "gtk4", version = "0.11", features = ["v4_10"] }
 adw = { package = "libadwaita", version = "0.9", features = ["v1_5"] }
 
@@ -28,5 +30,5 @@ hotpath = "0.14"
 
 [features]
 default = []
-hotpath = ["hotpath/hotpath"]
-hotpath-alloc = ["hotpath/hotpath-alloc"]
+hotpath = ["hotpath/hotpath", "manga-translator-core/hotpath"]
+hotpath-alloc = ["hotpath/hotpath-alloc", "manga-translator-core/hotpath-alloc"]

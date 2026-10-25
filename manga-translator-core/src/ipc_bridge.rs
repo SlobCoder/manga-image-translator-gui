@@ -716,13 +716,46 @@ impl IpcBridge {
                 if candidate.is_file() {
                     return Ok(candidate);
                 }
+
+                // GPUI frontend installed: <prefix>/bin/ → <prefix>/share/manga-translator-gpui/backend/
+                let candidate = exe_dir
+                    .join("..")
+                    .join("share")
+                    .join("manga-translator-gpui")
+                    .join("backend")
+                    .join("server.py");
+                if candidate.is_file() {
+                    return Ok(candidate);
+                }
+
+                // Sibling crate during development: the GPUI binary lives in
+                // <repo>/manga-translator-gpui/target/<profile>/ and reuses the
+                // backend that ships with the GTK crate.
+                for depth in 2..=3 {
+                    let mut candidate = exe_dir.to_path_buf();
+                    for _ in 0..depth {
+                        candidate = candidate.join("..");
+                    }
+                    let candidate = candidate
+                        .join("manga-translator-gtk")
+                        .join("backend")
+                        .join("server.py");
+                    if candidate.is_file() {
+                        return Ok(candidate);
+                    }
+                }
             }
         }
 
         // Try relative to CWD
-        let candidate = PathBuf::from("backend/server.py");
-        if candidate.is_file() {
-            return Ok(candidate);
+        for candidate in [
+            PathBuf::from("backend/server.py"),
+            PathBuf::from("manga-translator-gtk/backend/server.py"),
+            PathBuf::from("../manga-translator-gtk/backend/server.py"),
+        ] {
+            if candidate.is_file() {
+                return Ok(candidate);
+            }
         }
 
         // Try from configured manga_translator_path
