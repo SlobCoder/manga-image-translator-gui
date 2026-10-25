@@ -25,15 +25,15 @@ Pre-built binaries are available on the [Releases page](https://github.com/SlobC
 
 | Format | File | Notes |
 |---|---|---|
-| **Flatpak** | `MangaTranslator-0.2.2-x86_64.flatpak` | GNOME 50 runtime, NVIDIA/ROCm GPU support, matugen colors |
+| **Flatpak** | `MangaTranslator-v0.2.2-x86_64.flatpak` | GNOME 50 runtime, NVIDIA/ROCm GPU support, matugen colors |
 | **AppImage** | `MangaTranslator-0.2.2-x86_64.AppImage` | Portable, no installation needed |
-| **Windows MSIX** | `MangaTranslator-0.2.2-x86_64.msix` | Installable Windows package |
-| **Windows ZIP** | `MangaTranslator-0.2.2-x86_64.zip` | Portable Windows binary |
+| **Windows MSIX** | `MangaTranslator-0.2.2.0.msix` | Installable Windows package |
+| **Windows ZIP** | `manga-translator-gtk-0.2.2.0-windows-x86_64.zip` | Portable Windows binary |
 
 ### Install Flatpak
 
 ```bash
-flatpak install MangaTranslator-0.2.2-x86_64.flatpak
+flatpak install MangaTranslator-v0.2.2-x86_64.flatpak
 ```
 
 ### Install AppImage
