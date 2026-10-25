@@ -420,6 +420,27 @@ def handle_python_version(params: dict) -> str:
 
 
 def handle_is_backend_available(params: dict) -> bool:
+    """Cheap check: is the manga_translator package importable at all?
+
+    Importing ``manga_translator.mode.local`` pulls in torch and the whole
+    model stack (~1.8-3.3 s measured). That is far too expensive for a
+    startup status check, so this only asks the import system whether the
+    package exists. The heavy import happens once, via ``warmup`` or on the
+    first real translation.
+    """
+    import importlib.util
+
+    try:
+        return importlib.util.find_spec("manga_translator") is not None
+    except (ImportError, ValueError):
+        return False
+
+
+def handle_warmup(params: dict) -> bool:
+    """Import the heavy backend stack now so the first translation is fast.
+
+    Costs the full import time, so callers must run this off the UI thread.
+    """
     try:
         import manga_translator.mode.local  # noqa: F401
 
@@ -1082,6 +1103,32 @@ def _read_json(infile: io.TextIOBase) -> Optional[dict]:
 _write_lock = threading.Lock()
 
 
+def _isolate_protocol_stream(outfile: io.TextIOBase) -> io.TextIOBase:
+    """Keep library output off the JSON protocol stream.
+
+    Native extension modules (e.g. ``rusty_manga_image_translator``) write to
+    file descriptor 1 directly, so reassigning :data:`sys.stdout` is not enough
+    to silence them.  Duplicate the protocol stream onto a private descriptor
+    and point fd 1 at stderr, where the Rust parent inherits it and our own
+    logger already writes.
+
+    Returns *outfile* unchanged when it is not the real stdout (tests pass
+    their own streams).
+    """
+    if outfile is not sys.stdout:
+        return outfile
+
+    try:
+        sys.stdout.flush()
+        sys.stderr.flush()
+        protocol_fd = os.dup(1)
+        os.dup2(2, 1)
+    except OSError:  # pragma: no cover - no usable stdout/stderr
+        return outfile
+
+    return os.fdopen(protocol_fd, "w", buffering=1, encoding="utf-8", errors="replace")
+
+
 # ---------------------------------------------------------------------------
 # Dispatch table
 # ---------------------------------------------------------------------------
@@ -1091,6 +1138,7 @@ SIMPLE_COMMANDS = {
     "ping": handle_ping,
     "python_version": handle_python_version,
     "is_backend_available": handle_is_backend_available,
+    "warmup": handle_warmup,
     "generate_thumbnail": handle_generate_thumbnail,
     "get_cached_translation": handle_get_cached_translation,
     "fetch_openrouter_models": handle_fetch_openrouter_models,
@@ -1142,6 +1190,12 @@ def main_loop(
     drain in :func:`handle_translate`).
     """
     logger.info("Backend server started (PID %d)", os.getpid())
+
+    # Library code (manga_translator) prints progress and warnings with plain
+    # ``print()`` while importing, which would interleave with our JSON
+    # protocol on stdout. The hardware-accelerated extension module writes to
+    # fd 1 even without ``print()``, so this has to happen at descriptor level.
+    outfile = _isolate_protocol_stream(outfile)
 
     # Start background stdin reader thread
     reader_thread = threading.Thread(

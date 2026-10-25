@@ -1862,10 +1862,19 @@ fn apply_saved_state(
         let _ = std::thread::Builder::new()
             .name("backend-warmup".into())
             .spawn(move || {
-                if bridge.is_backend_available() {
-                    log::info!("Python backend is available");
-                } else {
+                if !bridge.is_backend_available() {
                     log::warn!("Python backend is NOT available — translation features disabled");
+                    return;
+                }
+                log::info!("Python backend is available");
+
+                // Import torch & co. now so the first translation doesn't pay
+                // for it. This is the slow part (~2–3 s); the availability
+                // check above is a cheap package probe.
+                match bridge.warmup() {
+                    Ok(true) => log::info!("Python backend warmed up"),
+                    Ok(false) => log::warn!("Python backend warm-up failed"),
+                    Err(e) => log::warn!("Python backend warm-up failed: {}", e),
                 }
             });
     }

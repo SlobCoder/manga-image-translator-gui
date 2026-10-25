@@ -425,7 +425,16 @@ impl IpcBridge {
                                     }
                                 }
                                 Err(e) => {
-                                    log::error!("Invalid JSON from backend: {}", e);
+                                    // Libraries inside the backend occasionally
+                                    // write plain text to the protocol stream.
+                                    // It is never a reply, so skip it instead of
+                                    // failing the pending call.
+                                    let excerpt: String = trimmed.chars().take(200).collect();
+                                    log::warn!(
+                                        "Ignoring non-JSON line from backend ({}): {}",
+                                        e,
+                                        excerpt
+                                    );
                                 }
                             }
                         }
@@ -838,10 +847,12 @@ impl IpcBridge {
             .ok_or_else(|| BridgeError::Ipc("Invalid python_version response".into()))
     }
 
-    /// Check if the manga_translator backend is available.
+    /// Check whether the Python package is importable at all.
     ///
     /// Returns `false` (instead of erroring) when the backend is not
-    /// configured or the Python modules cannot be imported.
+    /// configured or the Python modules cannot be imported. The backend
+    /// answers this without importing the model stack, so it costs
+    /// microseconds. Use [`warmup`](Self::warmup) for the expensive part.
     pub fn is_backend_available(&self) -> bool {
         if let Err(e) = self.ensure_initialized() {
             log::info!("is_backend_available: initialization failed: {}", e);
@@ -854,6 +865,16 @@ impl IpcBridge {
                 false
             }
         }
+    }
+
+    /// Import the heavy Python stack so the first translation is fast.
+    ///
+    /// This is the expensive half of the old availability check (~1.8–3.3 s,
+    /// mostly torch) and must therefore run on a worker thread.
+    pub fn warmup(&self) -> BridgeResult<bool> {
+        self.ensure_initialized()?;
+        let result = self.call("warmup", json!({}))?;
+        Ok(result.as_bool().unwrap_or(false))
     }
 
     // -----------------------------------------------------------------------
