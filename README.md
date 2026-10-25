@@ -14,6 +14,11 @@ A modern desktop GUI for [manga-image-translator](https://github.com/zyddnys/man
 
 The Rust frontend communicates with the Python backend (`backend/server.py`) via an IPC subprocess — JSON over stdin/stdout. This allows any Python 3.10+ environment to be used, provides crash isolation, and simplifies packaging.
 
+> **Two frontends, one core.** The packed release builds this GTK4 frontend. A second,
+> GPU-accelerated frontend built on [GPUI](https://gpui.rs) (Zed's UI framework) lives in
+> `manga-translator-gpui/` and shares the configuration file and the Python bridge with this
+> one through the `manga-translator-core` crate. See [GPUI frontend](#gpui-frontend-experimental).
+
 ## Downloads
 
 Pre-built binaries are available on the [Releases page](https://github.com/SlobCoder/manga-image-translator-gui/releases):
@@ -109,6 +114,42 @@ cargo run --release
 ```
 
 The release binary is ~4.7 MB and will be at `target/release/manga-translator-gtk`.
+
+## GPUI frontend (experimental)
+
+The GPUI frontend is a second, independent desktop frontend for the same backend. It renders
+through the GPU (Vulkan/Metal/DirectX via `blade`) instead of GTK, and needs no GTK/Adwaita at
+runtime.
+
+```bash
+cd manga-translator-gpui
+cargo run --release                 # opens the last used folder
+cargo run --release -- ~/Manga/Chapter\ 1   # opens a specific folder
+```
+
+What it shares with the GTK frontend:
+
+| Shared | Where |
+|---|---|
+| `~/.config/manga-translator/settings.json` + `api_keys.json` | `manga-translator-core/src/config.rs` |
+| `backend/server.py` IPC protocol | `manga-translator-core/src/ipc_bridge.rs` |
+| gettext translations (`locale/`) | `manga-translator-core/src/i18n.rs` |
+
+Implemented in the GPUI frontend: folder/image browser with thumbnails (using the
+same on-disk thumbnail cache as the GTK frontend), page preview with an
+original/translated comparison slider, draggable panel widths, search filter, all
+translation modes and rendering settings, API-key fields, progress and cancel,
+plus sorting and UI language switching.
+
+Not implemented yet: grid view, the standalone dialogs (log viewer, colour picker, shortcuts) and OpenRouter model auto-fetch.
+
+> Thumbnails and previews are decoded in Rust (`image` crate) instead of through the Python
+> backend, so browsing works before the backend has started.
+>
+> The build pins a compatibility shim for `xattr` (`manga-translator-gpui/vendor/xattr-shim`)
+> because `gpui` 0.2.2 pulls in `xattr` 0.2.3, which no longer compiles against current
+> `libc`. The shim is a five-line re-export and can be removed once gpui updates that
+> dependency.
 
 ## First-time Setup
 
@@ -345,9 +386,7 @@ manga-image-translator-gui/
     ├── src/
     │   ├── main.rs                # Entry point
     │   ├── lib.rs                 # Module exports
-    │   ├── config.rs              # Settings, API keys, ConfigManager
     │   ├── i18n.rs                # gettext internationalization + widget registry
-    │   ├── ipc_bridge.rs          # IPC subprocess bridge (Rust ↔ Python)
     │   └── ui/
     │       ├── main_window.rs     # Main application window
     │       ├── settings_panel.rs  # Settings sidebar
@@ -357,6 +396,32 @@ manga-image-translator-gui/
     │       └── css.rs             # Dynamic CSS generation (accent colors)
     └── tests/
         └── bridge_test.rs         # IPC bridge integration tests
+```
+
+## Project Structure (GPUI frontend)
+
+```
+manga-translator-core/             # shared, toolkit-agnostic
+├── src/
+│   ├── config.rs                  # Settings, API keys, ConfigManager, option tables
+│   ├── ipc_bridge.rs              # IPC subprocess bridge (Rust ↔ Python)
+│   └── i18n.rs                    # gettext setup + t()
+└── Cargo.toml
+
+manga-translator-gpui/             # GPUI frontend
+├── Cargo.toml
+├── vendor/xattr-shim/             # build workaround, see GPUI frontend section
+└── src/
+    ├── main.rs                    # Application entry, CLI folder argument
+    ├── app.rs                     # Root entity: state, worker messages, render tree
+    ├── theme.rs                   # Design tokens (dark/light)
+    ├── workers.rs                 # Render worker (decode) + bridge worker (IPC)
+    └── ui/
+        ├── text_input.rs          # Single-line input with IME/clipboard support
+        ├── widgets.rs             # Buttons, toggles, selects, pills
+        ├── sidebar.rs             # Toolbar, folder/image list, status bar
+        ├── preview_panel.rs       # Centre pane (original/translated)
+        └── settings_panel.rs      # Settings panel + select definitions
 ```
 
 ## Architecture
@@ -382,7 +447,9 @@ manga-image-translator-gui/
 
 - **Three Mutexes**: stdin_writer, response_rx, child process — independent locking for responsive UI
 - **Cancel support**: AtomicBool + IPC cancel command + Python threading.Event
-- **Auto-discovery**: server.py relative to executable or CWD
+- **Auto-discovery**: server.py relative to executable, sibling crate, or CWD
+- **Shared core**: `manga-translator-core` holds config, option tables and the IPC bridge, so the GTK and GPUI frontends can never drift apart
+- **Preview decoding off the main thread**: pages are decoded with gdk-pixbuf on a worker thread and handed over as premultiplied BGRA, a layout that serves both the GDK memory texture and the Cairo comparison overlay — no GPU download and no per-pixel swap on the UI thread
 - **Real-time i18n**: widget registry with weak references, retranslated on language change without restart
 
 ## CI/CD

@@ -1,0 +1,40 @@
+[package]
+name = "manga-translator-gpui"
+version = "0.1.0"
+edition = "2024"
+description = "Manga Image Translator — GPUI (Zed) GUI"
+license = "MIT"
+
+[[bin]]
+name = "manga-translator-gpui"
+path = "src/main.rs"
+
+[dependencies]
+manga-translator-core = { path = "../manga-translator-core" }
+
+gpui = "0.2"
+gettext-rs = { version = "0.7", features = ["gettext-system"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+log = "0.4"
+env_logger = "0.11"
+dirs = "6"
+image = "0.25"
+unicode-segmentation = "1"
+alphanumeric-sort = "1"
+async-channel = "2"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+# See vendor/xattr-shim/Cargo.toml for the reason for this patch.
+[patch.crates-io]
+xattr = { path = "vendor/xattr-shim" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16
