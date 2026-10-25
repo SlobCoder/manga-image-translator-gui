@@ -349,27 +349,3 @@ jobs:
             MangaTranslatorSigning.pfx
             MangaTranslatorSigning.cer
             dist/*.zip
-          body: |
-            ## Installation (MSIX)
-
-            ### Schritt 1: Zertifikat installieren
-            1. `MangaTranslatorSigning.cer` herunterladen
-            2. Doppelklick → **Zertifikat installieren**
-            3. **Lokaler Computer** → Weiter
-            4. **Alle Zertifikate in folgendem Speicher platzieren** → **Durchsuchen** → **Vertrauenswürdige Stammzertifizierungsstellen** → OK → Weiter → Fertigstellen
-
-            ### Schritt 2: App installieren
-            1. `MangaTranslator-*.msix` herunterladen
-            2. Doppelklick → **Installieren**
-
-            > **Hinweis:** Das Zertifikat ist selbstsigniert. Es muss nur einmal installiert werden — danach funktionieren alle zukünftigen Updates.
-
-            ---
-
-            ## Portable Version (ZIP)
-            Die ZIP-Datei kann an einen beliebigen Ort entpackt und `manga-translator-gtk.exe` direkt gestartet werden.
-
-            ### Ersteinrichtung
-            1. ⚙ Menü → Virtuelle Umgebung… → Python-Venv-Pfad setzen
-            2. manga-image-translator-Pfad setzen
-            3. Ctrl+K → API-Keys eingeben
