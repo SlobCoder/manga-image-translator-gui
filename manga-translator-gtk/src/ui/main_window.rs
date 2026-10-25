@@ -10,7 +10,7 @@ use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
 use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1247,25 +1247,83 @@ fn open_directory_inner(
     // Update FileBrowser
     widgets.borrow().file_browser.set_directory(path);
 
-    // Update state (for persistence)
-    state.borrow_mut().current_directory = path.to_path_buf();
-    {
-        let cfg = state.borrow().config.clone();
-        cfg.borrow_mut().settings.last_directory = path.to_string_lossy().to_string();
-        cfg.borrow().save_settings();
-    }
+    // Update state, path label and breadcrumb
+    set_directory_chrome(widgets, state, path);
+    persist_directory(state, path);
 
-    // Update path label
+    log::info!("Opened directory: {}", path.display());
+}
+
+/// Point the window chrome at *path*: state, path label and breadcrumb.
+///
+/// Cheap enough to run before `present()` — the expensive part is loading the
+/// listing, which is [`FileBrowser::set_directory`].
+fn set_directory_chrome(
+    widgets: &Rc<RefCell<Widgets>>,
+    state: &Rc<RefCell<WindowState>>,
+    path: &Path,
+) {
+    state.borrow_mut().current_directory = path.to_path_buf();
+
     let display = path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(path.to_str().unwrap_or("?"));
     widgets.borrow().path_label.set_label(display);
 
-    // Update breadcrumb navigation
     update_breadcrumb(widgets, state);
+}
 
-    log::info!("Opened directory: {}", path.display());
+/// Remember *path* as the directory to reopen on the next start.
+fn persist_directory(state: &Rc<RefCell<WindowState>>, path: &Path) {
+    let cfg = state.borrow().config.clone();
+    cfg.borrow_mut().settings.last_directory = path.to_string_lossy().to_string();
+    cfg.borrow().save_settings();
+}
+
+/// Load the directory from the previous session once the window is visible.
+///
+/// Populating the list for a 200+ page chapter and queueing its thumbnails
+/// costs ~60-70 ms. Doing that before `present()` delayed the first frame, so
+/// the header is filled in immediately and the listing follows one frame after
+/// the window has been drawn — the same order the GPUI frontend uses.
+fn schedule_initial_directory(
+    window: &adw::ApplicationWindow,
+    widgets: &Rc<RefCell<Widgets>>,
+    state: &Rc<RefCell<WindowState>>,
+    path: PathBuf,
+) {
+    set_directory_chrome(widgets, state, &path);
+
+    let widgets = widgets.clone();
+    let state = state.clone();
+    window.add_tick_callback(move |_window, _clock| {
+        let widgets = widgets.clone();
+        let state = state.clone();
+        let path = path.clone();
+        // The tick runs before its frame is painted, so an idle callback is
+        // dispatched only after that frame — the empty window appears first.
+        glib::idle_add_local_once(move || {
+            if !path.is_dir() {
+                log::warn!("Initial directory vanished: {}", path.display());
+                return;
+            }
+            // A "open with folder" action may already have navigated elsewhere;
+            // never override that with the directory from the last session.
+            if state.borrow().current_directory != path {
+                log::debug!(
+                    "initial directory superseded by {}, not reopening {}",
+                    state.borrow().current_directory.display(),
+                    path.display()
+                );
+                return;
+            }
+            widgets.borrow().file_browser.set_directory(&path);
+            persist_directory(&state, &path);
+            log::info!("Opened directory: {}", path.display());
+        });
+        glib::ControlFlow::Break
+    });
 }
 
 fn update_breadcrumb(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowState>>) {
@@ -1819,14 +1877,22 @@ fn apply_saved_state(
         .file_browser
         .set_sort_method(settings.sort_method);
 
-    // Restore last directory
+    // Restore last directory. The listing is loaded after the first frame;
+    // only the header is filled in before `present()` (see
+    // `schedule_initial_directory`).
     let last_dir = settings.last_directory.clone();
     log::debug!("apply_saved_state: last_directory = {:?}", last_dir);
-    if !last_dir.is_empty() {
+    let start_dir = if last_dir.is_empty() {
+        let default_dir = ConfigManager::default_manga_dir();
+        log::debug!(
+            "apply_saved_state: no saved dir, using default {}",
+            default_dir.display()
+        );
+        default_dir
+    } else {
         let path = PathBuf::from(&last_dir);
         if path.is_dir() {
-            log::debug!("apply_saved_state: opening saved dir {}", path.display());
-            open_directory_inner(widgets, state, &path);
+            path
         } else {
             log::warn!(
                 "apply_saved_state: saved dir does not exist: {}",
@@ -1837,15 +1903,17 @@ fn apply_saved_state(
                 "apply_saved_state: falling back to default dir {}",
                 default_dir.display()
             );
-            open_directory_inner(widgets, state, &default_dir);
+            default_dir
         }
+    };
+
+    if start_dir.is_dir() {
+        schedule_initial_directory(window, widgets, state, start_dir);
     } else {
-        let default_dir = ConfigManager::default_manga_dir();
-        log::debug!(
-            "apply_saved_state: no saved dir, using default {}",
-            default_dir.display()
+        log::warn!(
+            "apply_saved_state: directory does not exist: {}",
+            start_dir.display()
         );
-        open_directory_inner(widgets, state, &default_dir);
     }
 
     // Warm up the backend off the main thread.
