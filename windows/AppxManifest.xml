@@ -7,7 +7,7 @@
   <Identity
     Name="SlobCoder.MangaTranslatorGTK"
     Publisher="CN=Manga Translator, O=SlobCoder"
-    Version="0.2.0.0" />
+    Version="0.2.2.0" />
 
   <Properties>
     <DisplayName>Manga Translator</DisplayName>

@@ -1,6 +1,6 @@
 [package]
 name = "manga-translator-core"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 description = "Manga Image Translator — shared core (config + Python IPC bridge)"
 license = "MIT"

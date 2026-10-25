@@ -2,6 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.2.2] — 2026-10-25
+
+GTK frontend release. The repository now also contains the experimental GPUI
+frontend (`manga-translator-gpui/`), which is not part of this release.
+
+### Added
+- **Spring-animated splitter** — F9 collapses/expands the settings panel with
+  `AdwSpringAnimation` instead of snapping; double-clicking a divider resets it
+  to its default width
+- libadwaita feature level raised to `v1_9`, unlocking `AdwToggleGroup`,
+  `AdwWrapBox`, `AdwSidebar`, `AdwViewSwitcherSidebar`
+- README: troubleshooting entry for light mode on dark-only system themes
+
+### Changed
+- **Dependencies updated** — gtk4 0.11.5, libadwaita 0.9.2, glib/gio 0.22.10,
+  gettext-rs 0.8, dirs 7, base64 0.23, hotpath 0.29. Building from source now
+  needs GTK 4.22+ and libadwaita 1.9+ (flatpak, AppImage and Windows bundles
+  ship their own libraries)
+- **Faster start** — the window is presented before the page listing is built
+  (~70–80 ms), and the backend availability check is a cheap package probe
+  (1.8 s → 0.3 ms) with the expensive import moved to a background warm-up
+- Preview images decode off the main thread; thumbnails decode in parallel on
+  all cores and use an on-disk cache
+
+### Fixed
+- **Light color scheme** only brightened parts of the window when a third-party
+  theme pins a dark palette in `~/.config/gtk-4.0/gtk.css` (e.g. Matugen)
+- Panel widths are no longer overwritten by GTK's layout clamping during the
+  splitter animation or while the settings panel is collapsed
+- Non-JSON output from the Python backend no longer corrupts the IPC stream
+
 ## [0.2.1] — 2026-05-15
 
 ### Added

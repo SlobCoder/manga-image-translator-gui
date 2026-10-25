@@ -3,6 +3,7 @@
   <id>com.mangatranslator.gui</id>
   <metadata_license>MIT</metadata_license>
   <project_license>MIT</project_license>
+  <url type="homepage">https://github.com/SlobCoder/manga-image-translator-gui</url>
   <name>Manga Translator</name>
   <summary>Translate manga images with OCR and machine translation</summary>
   <summary xml:lang="de">Manga-Bilder mit OCR und maschineller Übersetzung übersetzen</summary>
@@ -61,6 +62,17 @@
   </keywords>
 
   <releases>
+    <release version="0.2.2" date="2026-10-25">
+      <description>
+        <p>Performance, theming and splitter polish.</p>
+        <ul>
+          <li>Window is shown before the page list loads; much faster backend checks</li>
+          <li>Light color scheme now works with dark-only system themes</li>
+          <li>Spring-animated settings panel (F9) and double-click divider reset</li>
+          <li>Dependencies updated; requires GTK 4.22+ and libadwaita 1.9+</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-05-15">
       <description>
         <p>Packaging and CI/CD release.</p>
