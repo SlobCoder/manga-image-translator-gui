@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.3] — 2026-10-26
+
 ### Changed
 - **Preview placeholder** — the manga spread now turns a real page instead of
   wiping across it. The sheet lifts off the spine, foreshortens in perspective,

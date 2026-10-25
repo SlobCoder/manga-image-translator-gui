@@ -906,7 +906,7 @@ dependencies = [
 
 [[package]]
 name = "manga-translator-gtk"
-version = "0.2.2"
+version = "0.2.3"
 dependencies = [
  "alphanumeric-sort",
  "async-channel",

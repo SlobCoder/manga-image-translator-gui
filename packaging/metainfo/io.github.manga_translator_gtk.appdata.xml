@@ -62,6 +62,17 @@
   </keywords>
 
   <releases>
+    <release version="0.2.3" date="2026-10-26">
+      <description>
+        <p>The empty preview turns a real page.</p>
+        <ul>
+          <li>Page-turn animation on the placeholder: perspective, paper curl, cast shadow</li>
+          <li>Damped-spring motion with a settle, and a bend that follows the sweep</li>
+          <li>No visible seams across the projected sheet</li>
+          <li>Placeholder drawing is cached; a frame costs a fraction of the previous CPU time</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.2" date="2026-10-25">
       <description>
         <p>Performance, theming and splitter polish.</p>
