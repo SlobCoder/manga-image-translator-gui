@@ -763,8 +763,10 @@ pub fn show_accent_color_dialog(
     parent: &impl IsA<gtk::Widget>,
     config: Rc<RefCell<ConfigManager>>,
     on_changed: Box<dyn Fn(&str)>,
+    on_scheme: Box<dyn Fn(&str)>,
 ) {
     let on_changed = Rc::new(on_changed);
+    let on_scheme = Rc::new(on_scheme);
     let dialog = adw::Dialog::builder()
         .title(&i18n::t("Akzentfarbe"))
         .content_width(420)
@@ -806,6 +808,7 @@ pub fn show_accent_color_dialog(
 
     // Apply scheme: System
     let config_scheme = config.clone();
+    let on_scheme_sys = on_scheme.clone();
     let style_mgr = adw::StyleManager::default();
     btn_system.connect_toggled(clone!(
         #[strong]
@@ -817,12 +820,14 @@ pub fn show_accent_color_dialog(
                 style_mgr.set_color_scheme(adw::ColorScheme::PreferLight);
                 config_scheme.borrow_mut().settings.color_scheme = "system".to_string();
                 config_scheme.borrow_mut().save_settings();
+                on_scheme_sys("system");
             }
         }
     ));
 
     // Apply scheme: Force Light
     let config_scheme = config.clone();
+    let on_scheme_light = on_scheme.clone();
     let style_mgr = adw::StyleManager::default();
     btn_light.connect_toggled(clone!(
         #[strong]
@@ -834,12 +839,14 @@ pub fn show_accent_color_dialog(
                 style_mgr.set_color_scheme(adw::ColorScheme::ForceLight);
                 config_scheme.borrow_mut().settings.color_scheme = "light".to_string();
                 config_scheme.borrow_mut().save_settings();
+                on_scheme_light("light");
             }
         }
     ));
 
     // Apply scheme: Force Dark
     let config_scheme = config.clone();
+    let on_scheme_dark = on_scheme.clone();
     let style_mgr = adw::StyleManager::default();
     btn_dark.connect_toggled(clone!(
         #[strong]
@@ -851,6 +858,7 @@ pub fn show_accent_color_dialog(
                 style_mgr.set_color_scheme(adw::ColorScheme::ForceDark);
                 config_scheme.borrow_mut().settings.color_scheme = "dark".to_string();
                 config_scheme.borrow_mut().save_settings();
+                on_scheme_dark("dark");
             }
         }
     ));

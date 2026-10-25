@@ -49,6 +49,71 @@ pub fn accent_color_css(accent: &AccentColor) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Forced light palette
+// ---------------------------------------------------------------------------
+
+/// Surface colors for light mode, applied only while the user forces light.
+///
+/// `AdwStyleManager::set_color_scheme(ForceLight)` swaps libadwaita's own
+/// stylesheet, but a third-party theme can pin the *named* colors globally in
+/// `~/.config/gtk-4.0/gtk.css` (Matugen does exactly that with
+/// `@define-color window_bg_color #1a1110`). Those definitions are loaded after
+/// libadwaita's, so they win regardless of the scheme and the window stays dark.
+///
+/// Re-asserting the surfaces at `STYLE_PROVIDER_PRIORITY_USER` makes the in-app
+/// switch authoritative again: later definitions win, and we only do this for
+/// light mode — the dark palette of the user's theme is left untouched.
+///
+/// Accent, destructive and error colors are deliberately not listed, so the
+/// theme's (or the app's own) accent choice survives.
+pub fn light_palette_css() -> &'static str {
+    r#"@define-color window_bg_color #fafafa;
+@define-color window_fg_color rgba(0, 0, 0, 0.8);
+@define-color view_bg_color #ffffff;
+@define-color view_fg_color rgba(0, 0, 0, 0.8);
+@define-color headerbar_bg_color #ffffff;
+@define-color headerbar_fg_color rgba(0, 0, 0, 0.8);
+@define-color headerbar_border_color rgba(0, 0, 0, 0.1);
+@define-color headerbar_backdrop_color @window_bg_color;
+@define-color sidebar_bg_color #ebebed;
+@define-color sidebar_fg_color rgba(0, 0, 0, 0.8);
+@define-color secondary_sidebar_bg_color #f2f2f4;
+@define-color secondary_sidebar_fg_color rgba(0, 0, 0, 0.8);
+@define-color card_bg_color #ffffff;
+@define-color card_fg_color rgba(0, 0, 0, 0.8);
+@define-color dialog_bg_color #fafafa;
+@define-color dialog_fg_color rgba(0, 0, 0, 0.8);
+@define-color popover_bg_color #ffffff;
+@define-color popover_fg_color rgba(0, 0, 0, 0.8);
+@define-color overview_bg_color #f2f2f4;
+@define-color overview_fg_color rgba(0, 0, 0, 0.8);
+@define-color shade_color rgba(0, 0, 0, 0.07);
+@define-color scrollbar_outline_color rgba(0, 0, 0, 0.1);
+
+:root {
+    --window-bg-color: #fafafa;
+    --window-fg-color: rgba(0, 0, 0, 0.8);
+    --view-bg-color: #ffffff;
+    --view-fg-color: rgba(0, 0, 0, 0.8);
+    --headerbar-bg-color: #ffffff;
+    --headerbar-fg-color: rgba(0, 0, 0, 0.8);
+    --sidebar-bg-color: #ebebed;
+    --sidebar-fg-color: rgba(0, 0, 0, 0.8);
+    --secondary-sidebar-bg-color: #f2f2f4;
+    --secondary-sidebar-fg-color: rgba(0, 0, 0, 0.8);
+    --card-bg-color: #ffffff;
+    --card-fg-color: rgba(0, 0, 0, 0.8);
+    --dialog-bg-color: #fafafa;
+    --dialog-fg-color: rgba(0, 0, 0, 0.8);
+    --popover-bg-color: #ffffff;
+    --popover-fg-color: rgba(0, 0, 0, 0.8);
+    --overview-bg-color: #f2f2f4;
+    --overview-fg-color: rgba(0, 0, 0, 0.8);
+}
+"#
+}
+
+// ---------------------------------------------------------------------------
 // Accent swatch CSS
 // ---------------------------------------------------------------------------
 

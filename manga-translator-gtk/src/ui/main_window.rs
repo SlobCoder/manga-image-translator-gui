@@ -47,6 +47,8 @@ pub struct WindowState {
     pub accent_color: String,
     /// CSS provider for accent color overrides.
     pub accent_css_provider: Option<gtk::CssProvider>,
+    /// CSS provider pinning the light surfaces while the user forces light mode.
+    pub scheme_css_provider: Option<gtk::CssProvider>,
     /// Error count for log button indicator.
     pub error_count: u32,
     /// Whether the log dialog is currently open.
@@ -123,6 +125,7 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
         search_text: String::new(),
         accent_color: "system".to_string(),
         accent_css_provider: None,
+        scheme_css_provider: None,
         error_count: 0,
         log_dialog_open: false,
         log_entries: Rc::new(RefCell::new(Vec::new())),
@@ -951,10 +954,12 @@ fn install_actions(
         move |_, _| {
             let config = state.borrow().config.clone();
             let state_clone = state.clone();
+            let state_scheme = state.clone();
             super::dialogs::show_accent_color_dialog(
                 &window,
                 config,
                 Box::new(move |name| apply_accent_color(&state_clone, name)),
+                Box::new(move |scheme| apply_color_scheme(&state_scheme, scheme)),
             );
         }
     ));
@@ -1727,15 +1732,49 @@ fn start_translation(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowSt
 }
 
 // ---------------------------------------------------------------------------
-// API Key Pre-Flight Check
-// ---------------------------------------------------------------------------
-
-/// Check if the currently selected translator requires an API key and
-/// update the start button accordingly (red pulsing warning vs green).
-
-// ---------------------------------------------------------------------------
 // API Keys dialog
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Color scheme application
+// ---------------------------------------------------------------------------
+
+/// Switch the window between system / light / dark.
+///
+/// Forcing light also pins the light surface colors, because a third-party GTK
+/// theme may hardcode a dark palette in `~/.config/gtk-4.0/gtk.css`. Without
+/// that the scheme switch only reaches libadwaita's own widgets, leaving e.g.
+/// the file browser dark. The provider is removed again for dark and system, so
+/// the user's theme keeps full control there.
+fn apply_color_scheme(state: &Rc<RefCell<WindowState>>, scheme: &str) {
+    let style_mgr = adw::StyleManager::default();
+    match scheme {
+        "light" => style_mgr.set_color_scheme(adw::ColorScheme::ForceLight),
+        "dark" => style_mgr.set_color_scheme(adw::ColorScheme::ForceDark),
+        _ => style_mgr.set_color_scheme(adw::ColorScheme::PreferLight),
+    }
+
+    if let Some(old_provider) = state.borrow_mut().scheme_css_provider.take()
+        && let Some(display) = Display::default()
+    {
+        gtk::style_context_remove_provider_for_display(&display, &old_provider);
+    }
+
+    if scheme == "light" {
+        let provider = gtk::CssProvider::new();
+        provider.load_from_data(crate::ui::css::light_palette_css());
+        if let Some(display) = Display::default() {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                &provider,
+                gtk::STYLE_PROVIDER_PRIORITY_USER,
+            );
+        }
+        state.borrow_mut().scheme_css_provider = Some(provider);
+    }
+
+    log::info!("Color scheme set to: {}", scheme);
+}
 
 // ---------------------------------------------------------------------------
 // Accent color application
@@ -1852,12 +1891,7 @@ fn apply_saved_state(
     }
 
     // Restore color scheme (system / light / dark)
-    let style_mgr = adw::StyleManager::default();
-    match settings.color_scheme.as_str() {
-        "light" => style_mgr.set_color_scheme(adw::ColorScheme::ForceLight),
-        "dark" => style_mgr.set_color_scheme(adw::ColorScheme::ForceDark),
-        _ => style_mgr.set_color_scheme(adw::ColorScheme::PreferLight),
-    }
+    apply_color_scheme(state, &settings.color_scheme);
 
     // Restore view mode (including toggle button state)
     match settings.view_mode.as_str() {
