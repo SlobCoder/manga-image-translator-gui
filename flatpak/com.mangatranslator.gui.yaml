@@ -4,6 +4,29 @@ runtime-version: "50"
 sdk: org.gnome.Sdk
 command: manga-translator-gtk
 
+# appstreamcli 1.0.6 in the current GNOME 50 SDK loads icons through glycin,
+# which refuses to start inside the flatpak-builder sandbox (it spawns its
+# loader via flatpak-spawn, and /.flatpak-info of a *build* sandbox has no
+# [Application] group). That aborts the cleanup phase with "E: file-read-error".
+# The metainfo and icons are still installed; only the pre-composed catalogue
+# in share/app-info is skipped.
+appstream-compose: false
+
+# GNOME 50 is based on freedesktop-sdk 25.08, so the matching Rust extension is
+# usable here. Building against the SDK (instead of the host) is what guarantees
+# that the GTK 4 / libadwaita headers we compile against are the ones that ship
+# in the runtime; the host libadwaita on CI images is far older than 1.9.
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  # cargo needs to reach crates.io; flatpak-builder's sandbox has no network by default
+  build-args:
+    - --share=network
+  env:
+    CARGO_HOME: /run/build/manga-translator-gtk/.cargo-home
+
 # NVIDIA / CUDA driver extension for GPU compute
 add-extensions:
   org.freedesktop.Platform.GL:
@@ -42,7 +65,9 @@ modules:
       # Create GL extension directory for NVIDIA driver
       - mkdir -p ${FLATPAK_DEST}/lib/GL
 
-      # Binary (pre-built on host with rustup)
+      # Binary, compiled inside the SDK against its GTK 4 / libadwaita
+      - cargo build --release --locked
+        --manifest-path manga-translator-gtk/Cargo.toml
       - install -Dm755 manga-translator-gtk/target/release/manga-translator-gtk
         ${FLATPAK_DEST}/bin/manga-translator-gtk
 
@@ -52,9 +77,11 @@ modules:
       - sed -i 's|^Icon=.*|Icon=com.mangatranslator.gui|'
         ${FLATPAK_DEST}/share/applications/com.mangatranslator.gui.desktop
 
-      # Icon (renamed to app-id for Flatpak convention)
-      - install -Dm644 packaging/manga-translator-gtk.svg
-        ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/com.mangatranslator.gui.svg
+      # Icons (renamed to app-id for Flatpak convention).
+      # No scalable SVG: flatpak build-export validates icons through
+      # libappstream/glycin, and on the build host no SVG image loader is
+      # installed, so an SVG icon makes the export fail with
+      # "...com.mangatranslator.gui.svg is not a valid icon: Format not recognized".
       - install -Dm644 packaging/icons/com.mangatranslator.gui-64x64.png
         ${FLATPAK_DEST}/share/icons/hicolor/64x64/apps/com.mangatranslator.gui.png
       - install -Dm644 packaging/icons/com.mangatranslator.gui-128x128.png
@@ -86,3 +113,14 @@ modules:
     sources:
       - type: dir
         path: ..
+        skip:
+          - .git
+          - .jj
+          - .threadbridge
+          - .cargo-home
+          - target
+          - build
+          - dist
+          - manga-translator-gtk/target
+          - manga-translator-gpui/target
+          - manga-translator-core/target

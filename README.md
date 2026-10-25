@@ -365,9 +365,9 @@ done
 ```
 manga-image-translator-gui/
 ├── .github/workflows/
-│   ├── build-flatpak.yml          # Flatpak CI (GNOME 50, rustup)
+│   ├── build-flatpak.yml          # Flatpak CI (GNOME 50 SDK + Rust SDK extension)
 │   ├── build-appimage.yml         # AppImage CI (openSUSE Tumbleweed)
-│   └── build-windows.yml          # Windows CI (MSYS2, MSIX + ZIP)
+│   └── build-windows.yml          # Windows CI (MSYS2 UCRT64, MSIX + ZIP)
 ├── flatpak/
 │   └── com.mangatranslator.gui.yaml  # Flatpak manifest
 ├── packaging/
@@ -464,7 +464,7 @@ All three platforms are built automatically on tag push (`v*`) or manual trigger
 |---|---|---|---|
 | `build-flatpak.yml` | Ubuntu 24.04 | GNOME 50 SDK | `.flatpak` |
 | `build-appimage.yml` | openSUSE Tumbleweed | Bundled libs | `.AppImage` |
-| `build-windows.yml` | Windows Server | MSYS2/mingw64 | `.msix` + `.zip` |
+| `build-windows.yml` | Windows Server | MSYS2/ucrt64 | `.msix` + `.zip` |
 
 Artifacts are uploaded to the GitHub Release automatically.
 

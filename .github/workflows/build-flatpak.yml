@@ -16,32 +16,25 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Rust (rustup)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.os }}-cargo-
-
-      - name: Install system dependencies
+      - name: Install flatpak tooling
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libgtk-4-dev \
-            libadwaita-1-dev \
-            libcairo2-dev \
-            libpango1.0-dev \
-            libgdk-pixbuf-2.0-dev \
-            libgraphene-1.0-dev \
-            librsvg2-dev \
-            librsvg2-bin \
+            flatpak \
             flatpak-builder \
-            elfutils
+            elfutils \
+            librsvg2-bin
+
+      - name: Add GNOME runtime remote
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install GNOME 50 SDK, runtime and Rust extension
+        run: |
+          flatpak install --user -y --noninteractive flathub \
+            org.gnome.Platform//50 \
+            org.gnome.Sdk//50 \
+            org.freedesktop.Sdk.Extension.rust-stable//25.08
 
       - name: Generate PNG icons from SVG
         run: |
@@ -51,19 +44,6 @@ jobs:
               -o packaging/icons/com.mangatranslator.gui-${size}x${size}.png
           done
           ls -la packaging/icons/
-
-      - name: Build release
-        run: |
-          cd manga-translator-gtk
-          cargo build --release
-
-      - name: Add GNOME runtime remote
-        run: |
-          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-
-      - name: Install GNOME SDK runtime
-        run: |
-          flatpak install --user -y flathub org.gnome.Sdk//50 org.gnome.Platform//50
 
       - name: Build Flatpak
         run: |

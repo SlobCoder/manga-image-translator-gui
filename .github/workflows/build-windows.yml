@@ -41,28 +41,30 @@ jobs:
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
         with:
-          msystem: mingw64
+          # MSYS2 deprecated the msvcrt-based mingw64 environment in March 2026;
+          # gtk4 and libadwaita are only published for ucrt64/clang64 now.
+          msystem: ucrt64
           update: true
           install: >-
-            mingw-w64-x86_64-gtk4
-            mingw-w64-x86_64-libadwaita
-            mingw-w64-x86_64-gettext
-            mingw-w64-x86_64-gettext-tools
-            mingw-w64-x86_64-gcc
-            mingw-w64-x86_64-pkgconf
-            mingw-w64-x86_64-cairo
-            mingw-w64-x86_64-pango
-            mingw-w64-x86_64-gdk-pixbuf2
-            mingw-w64-x86_64-harfbuzz
-            mingw-w64-x86_64-freetype
-            mingw-w64-x86_64-fontconfig
-            mingw-w64-x86_64-glib2
-            mingw-w64-x86_64-graphene
-            mingw-w64-x86_64-pcre2
-            mingw-w64-x86_64-librsvg
-            mingw-w64-x86_64-adwaita-icon-theme
-            mingw-w64-x86_64-hicolor-icon-theme
-            mingw-w64-x86_64-glib-networking
+            mingw-w64-ucrt-x86_64-gtk4
+            mingw-w64-ucrt-x86_64-libadwaita
+            mingw-w64-ucrt-x86_64-gettext-runtime
+            mingw-w64-ucrt-x86_64-gettext-tools
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-pkgconf
+            mingw-w64-ucrt-x86_64-cairo
+            mingw-w64-ucrt-x86_64-pango
+            mingw-w64-ucrt-x86_64-gdk-pixbuf2
+            mingw-w64-ucrt-x86_64-harfbuzz
+            mingw-w64-ucrt-x86_64-freetype
+            mingw-w64-ucrt-x86_64-fontconfig
+            mingw-w64-ucrt-x86_64-glib2
+            mingw-w64-ucrt-x86_64-graphene
+            mingw-w64-ucrt-x86_64-pcre2
+            mingw-w64-ucrt-x86_64-librsvg
+            mingw-w64-ucrt-x86_64-adwaita-icon-theme
+            mingw-w64-ucrt-x86_64-hicolor-icon-theme
+            mingw-w64-ucrt-x86_64-glib-networking
 
       - name: Configure cargo linker flags for Windows
         shell: msys2 {0}
@@ -80,7 +82,7 @@ jobs:
         shell: msys2 {0}
         env:
           PKG_CONFIG_ALLOW_CROSS: "1"
-          PKG_CONFIG_PATH: "/mingw64/lib/pkgconfig:/mingw64/share/pkgconfig"
+          PKG_CONFIG_PATH: "/ucrt64/lib/pkgconfig:/ucrt64/share/pkgconfig"
           RUSTFLAGS: "-C link-args=-liconv"
         run: |
           export PATH="/c/Users/${USER}/.cargo/bin:${PATH}"
@@ -133,7 +135,7 @@ jobs:
       - name: Prepare MSIX layout
         shell: msys2 {0}
         run: |
-          MINGW="/mingw64"
+          MINGW="/ucrt64"
           LAYOUT="msix-layout"
 
           rm -rf "${LAYOUT}"
@@ -161,7 +163,7 @@ jobs:
           done
           echo "Bundled ${LOCALE_COUNT} locale files"
 
-          # ── Copy ALL DLLs from mingw64/bin ──
+          # ── Copy ALL DLLs from ucrt64/bin ──
           echo "=== Copying all DLLs from ${MINGW}/bin ==="
           DLL_COUNT=0
           for f in "${MINGW}/bin/"*.dll; do
@@ -194,7 +196,7 @@ jobs:
           cp "${MINGW}/bin/gdk-pixbuf-query-loaders.exe" "${LAYOUT}/"
           cd "${LAYOUT}"
           "./gdk-pixbuf-query-loaders.exe" > "lib/gdk-pixbuf-2.0/2.10.0/loaders.cache" 2>/dev/null || true
-          sed -i 's|C:/[^"]*/mingw64/lib/|lib/|g' "lib/gdk-pixbuf-2.0/2.10.0/loaders.cache" 2>/dev/null || true
+          sed -i -E 's#C:/[^"]*/(ucrt64|mingw64)/lib/#lib/#g' "lib/gdk-pixbuf-2.0/2.10.0/loaders.cache" 2>/dev/null || true
           cd -
           rm -f "${LAYOUT}/gdk-pixbuf-query-loaders.exe"
 
