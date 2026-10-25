@@ -17,6 +17,17 @@ All notable changes to this project will be documented in this file.
   the spread in the first frame. The free edge is no longer bowed by a fixed
   function of the angle: its bend follows the actual sweep speed, so it builds up
   after the lift starts and relaxes as the sheet lands.
+- **Preview placeholder drawing is cached** — the spread (panels, screentone,
+  gutter) and the paper grain are drawn into cached surfaces instead of being
+  rebuilt on every frame; only the turning sheet still changes. A resting frame
+  drops from 2.48 ms to 0.32 ms and a turning one from 2.87 ms to 0.66 ms at
+  420×720, i.e. from ~15 % to ~2 % of a core at 60 fps. The surfaces are
+  allocated at device resolution and the page geometry is snapped to whole
+  device pixels, so the cached blit is a 1:1 copy — rendering them at user
+  resolution resampled every panel border and showed up as a softness the direct
+  drawing did not have. Two redundant grain passes that were painted before the
+  panels and then covered by them are gone with it; they only survived in the
+  gutters, where they doubled the grain density.
 
 ### Fixed
 - **Vertical hairlines across the turning page** — the sheet is projected as 40

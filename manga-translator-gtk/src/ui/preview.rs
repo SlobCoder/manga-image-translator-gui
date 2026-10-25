@@ -1280,6 +1280,7 @@ fn draw_panels(
 }
 
 /// State of the sheet while it is mid-turn.
+#[derive(Clone, Copy)]
 struct Turn {
     /// Rotation progress: 0 on the right spread, 1 flat on the left one. Climbs
     /// a couple of percent past 1 before it settles.
@@ -1382,12 +1383,145 @@ fn project_page(d: f64, theta: f64, hinge: f64, cam: f64, cam_x: f64) -> (f64, f
     (x, scale)
 }
 
+type PageKey = (usize, bool, i32, i32);
+type SpreadKey = (usize, usize, bool, i32, i32, i32);
+type GrainKey = (i32, i32, bool, i32);
+
 thread_local! {
     /// Pages already rendered for the turning sheet. Redrawing the panels into a
     /// fresh surface on every frame dominated the CPU cost of the placeholder,
     /// and the same page is on screen for a whole turn.
-    static PAGE_CACHE: std::cell::RefCell<Vec<((usize, bool, i32, i32), cairo::ImageSurface)>> =
+    static PAGE_CACHE: std::cell::RefCell<Vec<(PageKey, cairo::ImageSurface)>> =
         const { std::cell::RefCell::new(Vec::new()) };
+
+    /// Panels and gutter for one spread. The spread only changes when the page
+    /// index changes — three times per cycle at most — but it was being redrawn
+    /// from scratch on every frame, screentone included.
+    static SPREAD_CACHE: std::cell::RefCell<Vec<(SpreadKey, cairo::ImageSurface)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+
+    /// Paper grain. The dots are laid out deterministically from their position,
+    /// so the pattern never changes for a given size; building ~3.600 one-pixel
+    /// fills per frame was pure waste.
+    static GRAIN_CACHE: std::cell::RefCell<Vec<(GrainKey, cairo::ImageSurface)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Ceiling on the cached spreads. A spread surface is `pw * 2` by `ph` at four
+/// bytes a pixel, which is a few megabytes at a normal window size but grows
+/// with the window; past the ceiling a spread is simply drawn directly, which is
+/// what used to happen every frame anyway.
+const SPREAD_CACHE_BUDGET: usize = 24 << 20;
+/// Entries kept per cache. Three spreads cover one cycle: the resting spread,
+/// the pair mid-turn, and the pair it lands on.
+const CACHE_ENTRIES: usize = 3;
+
+fn surface_bytes(surface: &cairo::ImageSurface) -> usize {
+    (surface.width().max(0) as usize) * (surface.height().max(0) as usize) * 4
+}
+
+/// Panels plus gutter for the spread `left_idx` | `right_idx`, rendered once and
+/// reused until the page pair changes.
+///
+/// `pixel` is the width of one device pixel in user units: the surface is
+/// allocated at device resolution and the context scaled to match, so blitting
+/// it back at a pixel-aligned origin is a 1:1 copy. Rendering it at user
+/// resolution instead resamples every panel border on the way out, which shows
+/// as a softness the direct drawing did not have.
+fn spread_surface(
+    left_idx: usize,
+    right_idx: usize,
+    is_dark: bool,
+    pw: f64,
+    ph: f64,
+    pixel: f64,
+) -> Option<cairo::ImageSurface> {
+    let scale = 1.0 / pixel;
+    let w_px = (pw * 2.0 * scale).round().max(1.0) as i32;
+    let h_px = (ph * scale).round().max(1.0) as i32;
+    let key = (
+        left_idx,
+        right_idx,
+        is_dark,
+        w_px,
+        h_px,
+        (pixel * 1000.0) as i32,
+    );
+
+    if let Some(cached) = SPREAD_CACHE.with(|cache| {
+        cache
+            .borrow()
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, surface)| surface.clone())
+    }) {
+        return Some(cached);
+    }
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w_px, h_px).ok()?;
+    if surface_bytes(&surface) > SPREAD_CACHE_BUDGET {
+        return None;
+    }
+
+    {
+        let ctx = cairo::Context::new(&surface).ok()?;
+        ctx.scale(scale, scale);
+        // Left page at the surface origin, right page one page width along — the
+        // same offset the two halves have on screen.
+        draw_panels(&ctx, 0.0, 0.0, pw, ph, left_idx, is_dark, 0);
+        draw_panels(&ctx, pw, 0.0, pw, ph, right_idx, is_dark, 0);
+        draw_spine_overlay(&ctx, pw, 0.0, ph, is_dark);
+    }
+
+    SPREAD_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        while !cache.is_empty()
+            && (cache.len() >= CACHE_ENTRIES
+                || cache.iter().map(|(_, s)| surface_bytes(s)).sum::<usize>()
+                    + surface_bytes(&surface)
+                    > SPREAD_CACHE_BUDGET)
+        {
+            cache.remove(0);
+        }
+        cache.push((key, surface.clone()));
+    });
+
+    Some(surface)
+}
+
+/// Paper grain for a spread, rendered once into its own surface.
+fn grain_surface(pw: f64, ph: f64, is_dark: bool, pixel: f64) -> Option<cairo::ImageSurface> {
+    let scale = 1.0 / pixel;
+    let w_px = (pw * scale).round().max(1.0) as i32;
+    let h_px = (ph * scale).round().max(1.0) as i32;
+    let key = (w_px, h_px, is_dark, (pixel * 1000.0) as i32);
+
+    if let Some(cached) = GRAIN_CACHE.with(|cache| {
+        cache
+            .borrow()
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, surface)| surface.clone())
+    }) {
+        return Some(cached);
+    }
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w_px, h_px).ok()?;
+    {
+        let ctx = cairo::Context::new(&surface).ok()?;
+        ctx.scale(scale, scale);
+        draw_paper_texture(&ctx, 0.0, 0.0, pw, ph, is_dark);
+    }
+
+    GRAIN_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        while cache.len() >= CACHE_ENTRIES {
+            cache.remove(0);
+        }
+        cache.push((key, surface.clone()));
+    });
+
+    Some(surface)
 }
 
 /// Render one page (paper, tone, panels) into its own surface so the turn can
@@ -1859,18 +1993,27 @@ fn draw_placeholder_at(
 
     // Page geometry. Both halves share the hinge at the spine, which is what
     // lets the turning sheet land exactly on the left half at 180 degrees.
+    //
+    // Snapped to whole device pixels: the spread and the grain come from cached
+    // surfaces, and a fractional origin would force cairo to resample them on the
+    // way out, softening every panel border. Snapping also makes the borders
+    // themselves land on the pixel grid.
+    let pixel = cr
+        .device_to_user_distance(1.0, 1.0)
+        .map(|(dx, _)| dx)
+        .ok()
+        .filter(|dx| *dx > 0.0)
+        .unwrap_or(1.0);
+    let snap = |v: f64| (v / pixel).round() * pixel;
+
     let inset = 3.0;
-    let ph = bh - inset * 2.0;
-    let pw = (bw - sw) / 2.0 - inset;
-    let cx = bx + bw / 2.0;
+    let ph = snap(bh - inset * 2.0);
+    let pw = snap((bw - sw) / 2.0 - inset);
+    let cx = snap(bx + bw / 2.0);
     let cy = by + bh / 2.0;
-    let py = by + inset;
+    let py = snap(by + inset);
     let left_px = cx - pw;
     let right_px = cx;
-
-    // Subtle paper texture on both halves
-    draw_paper_texture(cr, left_px, py, pw, ph, is_dark);
-    draw_paper_texture(cr, right_px, py, pw, ph, is_dark);
 
     let page_base = if is_dark {
         (0.15, 0.15, 0.15)
@@ -1883,52 +2026,60 @@ fn draw_placeholder_at(
     let next_left = (page + 2) % LAYOUTS.len();
     let next_right = (page + 3) % LAYOUTS.len();
 
-    match turn_phase(t) {
-        // Resting spread.
-        None => {
-            draw_panels(cr, left_px, py, pw, ph, left_idx, is_dark, 0);
-            draw_panels(cr, right_px, py, pw, ph, right_idx, is_dark, 0);
-            draw_spine_overlay(cr, cx, py, ph, is_dark);
+    let turn = turn_phase(t);
+
+    // Near either end the sheet lies flat on a page it matches, so that page is
+    // drawn underneath as well: the hairlines between strips then blend into
+    // identical content instead of revealing the old page. Three pairs cover the
+    // whole cycle, which is what makes the spread cacheable at all.
+    let (under_left, under_right) = match turn {
+        Some(turn) if turn.progress > 0.97 => (next_left, next_right),
+        Some(turn) if turn.progress < 0.03 => (left_idx, right_idx),
+        Some(_) => (left_idx, next_right),
+        None => (left_idx, right_idx),
+    };
+
+    match spread_surface(under_left, under_right, is_dark, pw, ph, pixel) {
+        Some(surface) => {
+            cr.set_source_surface(&surface, left_px, py).ok();
+            cr.paint().ok();
         }
-        // A sheet is being turned.
-        Some(turn) => {
-            let progress = turn.progress;
-            let theta = std::f64::consts::PI * progress;
-            let mirrored = theta > std::f64::consts::FRAC_PI_2;
-
-            // Near either end the sheet lies flat on a page it matches, so draw
-            // that page underneath as well: the hairlines between strips then
-            // blend into identical content instead of revealing the old page.
-            let left_under = if progress > 0.97 { next_left } else { left_idx };
-            let right_under = if progress < 0.03 {
-                right_idx
-            } else {
-                next_right
-            };
-
-            // Underneath: the old left page, plus the page the turn uncovers on
-            // the right as soon as the sheet lifts off it.
-            draw_panels(cr, left_px, py, pw, ph, left_under, is_dark, 0);
-            draw_panels(cr, right_px, py, pw, ph, right_under, is_dark, 0);
+        // Over the cache ceiling, or the surface could not be created.
+        None => {
+            draw_panels(cr, left_px, py, pw, ph, under_left, is_dark, 0);
+            draw_panels(cr, right_px, py, pw, ph, under_right, is_dark, 0);
             draw_spine_overlay(cr, cx, py, ph, is_dark);
-
-            draw_turn_shadow(cr, theta, turn.lag, cx, py, ph, pw, is_dark);
-
-            // The front of the sheet is the page being turned away, its back is
-            // the page it becomes on the left half of the next spread.
-            let turning_idx = if mirrored { next_left } else { right_idx };
-            let (pw_px, ph_px) = (pw.round() as i32, ph.round() as i32);
-            if let Some(surface) = page_surface(turning_idx, is_dark, pw_px, ph_px, page_base) {
-                draw_turning_page(
-                    cr, &surface, mirrored, theta, turn.lag, cx, cy, py, ph, pw, is_dark,
-                );
-            }
         }
     }
+
+    // Only the sheet itself still has to be drawn per frame.
+    if let Some(turn) = turn {
+        let theta = std::f64::consts::PI * turn.progress;
+        let mirrored = theta > std::f64::consts::FRAC_PI_2;
+
+        draw_turn_shadow(cr, theta, turn.lag, cx, py, ph, pw, is_dark);
+
+        // The front of the sheet is the page being turned away, its back is the
+        // page it becomes on the left half of the next spread.
+        let turning_idx = if mirrored { next_left } else { right_idx };
+        let (pw_px, ph_px) = (pw.round() as i32, ph.round() as i32);
+        if let Some(surface) = page_surface(turning_idx, is_dark, pw_px, ph_px, page_base) {
+            draw_turning_page(
+                cr, &surface, mirrored, theta, turn.lag, cx, cy, py, ph, pw, is_dark,
+            );
+        }
+    }
+
     // Paper grain over the finished spread, applied once: the turning sheet comes
     // from a cached surface, so a second grain pass at a different phase used to
     // make the texture flicker the moment the turn ended.
-    draw_paper_texture(cr, left_px, py, pw * 2.0, ph, is_dark);
+    match grain_surface(pw * 2.0, ph, is_dark, pixel) {
+        Some(surface) => {
+            cr.set_source_surface(&surface, left_px, py).ok();
+            cr.paint().ok();
+        }
+        None => draw_paper_texture(cr, left_px, py, pw * 2.0, ph, is_dark),
+    }
 
     // Loading text with progress fill and glow
     draw_loading_text(cr, bx, by, bw, bh, is_dark, w, h, t);
@@ -2367,6 +2518,42 @@ mod tests {
             (peak - TURN_RATE_PEAK).abs() < 0.02 * TURN_RATE_PEAK,
             "measured {peak}, constant {TURN_RATE_PEAK}"
         );
+    }
+
+    /// Time one placeholder frame for a resting and a turning spread when
+    /// `PLACEHOLDER_BENCH` is set. The placeholder is drawn with cairo, so this
+    /// is CPU time, not GPU; it is here to keep the caching honest.
+    ///
+    ///     PLACEHOLDER_BENCH=1 cargo test --release bench_placeholder_frames -- --nocapture
+    #[test]
+    fn bench_placeholder_frames() {
+        if std::env::var_os("PLACEHOLDER_BENCH").is_none() {
+            return;
+        }
+
+        let (w, h) = (420, 720);
+        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).unwrap();
+        let cr = cairo::Context::new(&surface).unwrap();
+
+        let run = |label: &str, t_at: &dyn Fn(usize) -> f64| {
+            for i in 0..20 {
+                draw_placeholder_at(&cr, w, h, t_at(i), 0, true);
+            }
+            let n = 300;
+            let t0 = std::time::Instant::now();
+            for i in 0..n {
+                draw_placeholder_at(&cr, w, h, t_at(i), 0, true);
+            }
+            let per = t0.elapsed().as_secs_f64() / n as f64;
+            eprintln!(
+                "{label:6} {:.2} ms -> at 60 fps {:.1}% of one core",
+                per * 1000.0,
+                per * 60.0 * 100.0
+            );
+        };
+
+        run("rest", &|i| 0.1 + i as f64 * 0.007);
+        run("turn", &|i| 2.65 + i as f64 * 0.004);
     }
 
     /// Render the placeholder animation to PNGs when `PLACEHOLDER_DUMP` names a
