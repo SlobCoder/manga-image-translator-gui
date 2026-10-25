@@ -93,13 +93,17 @@ jobs:
         shell: msys2 {0}
         run: |
           VERSION="$(grep '^version = ' manga-translator-gtk/Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')"
-          # Convert to 4-part version (e.g. 0.2.0 -> 0.2.0.0) for MSIX
+          # The MSIX manifest needs a 4-part version (0.2.2 -> 0.2.2.0), but the
+          # asset names keep the plain 3-part version.
           PARTS=$(echo "$VERSION" | tr '.' '\n' | wc -l)
           if [ "$PARTS" -eq 3 ]; then
-            VERSION="${VERSION}.0"
+            MSIX_VERSION="${VERSION}.0"
+          else
+            MSIX_VERSION="${VERSION}"
           fi
-          echo "Package version: ${VERSION}"
+          echo "Package version: ${VERSION} (MSIX ${MSIX_VERSION})"
           echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          echo "MSIX_VERSION=${MSIX_VERSION}" >> "$GITHUB_ENV"
 
       # ─── MSIX Packaging ────────────────────────────────────────────────
 
@@ -254,7 +258,7 @@ jobs:
       - name: Update AppxManifest version
         shell: powershell
         run: |
-          $version = $env:VERSION
+          $version = $env:MSIX_VERSION
           $manifestPath = "windows\AppxManifest.xml"
           [xml]$manifest = Get-Content $manifestPath
           $manifest.Package.Identity.Version = $version
@@ -282,8 +286,7 @@ jobs:
 
           Write-Host "Using MakeAppx: $($makeAppx.FullName)"
 
-          $version = $env:VERSION
-          $msixFile = "MangaTranslator-${version}.msix"
+          $msixFile = "MangaTranslator-$($env:VERSION)-x86_64.msix"
 
           & $makeAppx.FullName pack /d msix-layout /p $msixFile /o /v
           Write-Host "Created: $msixFile"
@@ -322,7 +325,7 @@ jobs:
           cd ..
           mkdir -p dist
           cd dist
-          tar -a -c -f "manga-translator-gtk-${VERSION}-windows-x86_64.zip" -C .. "msix-layout"
+          tar -a -c -f "MangaTranslator-${VERSION}-x86_64.zip" -C .. "msix-layout"
           cd ..
 
       - name: Upload MSIX artifact

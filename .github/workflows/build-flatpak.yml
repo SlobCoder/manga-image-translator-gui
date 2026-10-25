@@ -60,6 +60,8 @@ jobs:
         run: |
           cd flatpak
           VERSION="${GITHUB_REF_NAME:-0.0.0}"
+          # Release tags are named v0.2.2; the asset should read MangaTranslator-0.2.2-…
+          VERSION="${VERSION#v}"
           BUNDLE="MangaTranslator-${VERSION}-x86_64.flatpak"
           flatpak build-bundle repo "${BUNDLE}" com.mangatranslator.gui
           mkdir -p ../dist
