@@ -1848,11 +1848,26 @@ fn apply_saved_state(
         open_directory_inner(widgets, state, &default_dir);
     }
 
-    // Check backend availability
-    if state.borrow().bridge.is_backend_available() {
-        log::info!("Python backend is available");
-    } else {
-        log::warn!("Python backend is NOT available — translation features disabled");
+    // Warm up the backend off the main thread.
+    //
+    // `is_backend_available()` starts the Python process and triggers the first
+    // import of the whole manga_translator/torch stack — ~3.3 s on a warm page
+    // cache. Running it here synchronously delayed `window.present()` by that
+    // long, so the window only appeared after the backend had answered.
+    //
+    // The result is only logged: the start button state comes from
+    // `check_api_key_status` below, which is pure local configuration checks.
+    {
+        let bridge = state.borrow().bridge.clone();
+        let _ = std::thread::Builder::new()
+            .name("backend-warmup".into())
+            .spawn(move || {
+                if bridge.is_backend_available() {
+                    log::info!("Python backend is available");
+                } else {
+                    log::warn!("Python backend is NOT available — translation features disabled");
+                }
+            });
     }
 
     // Initial API key pre-flight check
