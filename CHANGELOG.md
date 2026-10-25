@@ -10,6 +10,13 @@ All notable changes to this project will be documented in this file.
   bends at the free edge and throws a shadow on the page it uncovers; both
   themes are handled, and the page lands exactly on the next spread so the loop
   has no seam. The "Kein Bild geladen" label stays readable while it fills.
+- **Preview page turn motion** — the rotation follows the step response of a
+  damped spring instead of an ease-in-out curve, so the sheet carries a little
+  past the far side and rocks back onto it rather than decelerating and stopping
+  dead. The spring runs on an eased clock, which keeps the lift from jumping off
+  the spread in the first frame. The free edge is no longer bowed by a fixed
+  function of the angle: its bend follows the actual sweep speed, so it builds up
+  after the lift starts and relaxes as the sheet lands.
 
 ## [0.2.2] — 2026-10-25
 

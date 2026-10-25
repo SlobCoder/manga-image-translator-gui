@@ -30,6 +30,9 @@ desktop.ini
 # Threadbridge internal data
 .threadbridge/
 
+# Local review artifacts (frame dumps, before/after strips)
+.review-turn/
+
 # AppImage build artifacts
 build/
 dist/

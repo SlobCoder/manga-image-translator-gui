@@ -747,6 +747,23 @@ const STATIC_TIME: f64 = 2.6; // seconds the spread rests before the next turn
 const FLIP_TIME: f64 = 1.5; // seconds one sheet takes to turn over
 const CYCLE: f64 = STATIC_TIME + FLIP_TIME;
 
+// --- Turn motion ------------------------------------------------------------
+//
+// The rotation follows the step response of a damped spring rather than an
+// ease-in-out curve. An ease curve decelerates into the target and stops dead,
+// which reads as a slide; a spring carries the sheet a little past the far side
+// and rocks it back, which reads as paper.
+
+/// Damping ratio. Below 1 on purpose: this is what produces the overshoot.
+const TURN_DAMPING: f64 = 0.76;
+/// E-folds of decay packed into `FLIP_TIME`. Together with `TURN_DAMPING` this
+/// puts the overshoot at ~2.5 % of the arc, about seven tenths of the way in.
+const TURN_SETTLE: f64 = 6.0;
+/// Where the leftover tail starts being trimmed, as a fraction of `FLIP_TIME`.
+/// A spring only approaches its target asymptotically; the trim makes the sheet
+/// exactly flat when the flip ends, so the resting spread does not jump.
+const TURN_TRIM_START: f64 = 0.78;
+
 // --- Page turn geometry -----------------------------------------------------
 //
 // The turning sheet is projected as if a camera sat above the book plane: a
@@ -763,8 +780,15 @@ const CAM_HEIGHT: f64 = 9.5;
 const CAM_OFFSET: f64 = -0.45;
 /// Vertical strips used to project the turning sheet.
 const TURN_STRIPS: usize = 40;
-/// How far the free edge bends ahead of the rigid rotation, in radians.
-const PAPER_CURL: f64 = 0.36;
+/// How far the free edge runs ahead of the hinge at full sweep speed, in
+/// radians. This is the whole curl: the bow follows how fast the sheet is
+/// actually moving, so it builds up after the lift starts and relaxes as the
+/// sheet lands, instead of being a fixed function of the angle.
+const PAPER_CURL: f64 = 0.34;
+/// Peak of [`turn_motion`]'s rate. Dividing by it makes `PAPER_CURL` a plain
+/// angle rather than a number that has to be re-tuned with the spring. Guarded
+/// by `test_turn_rate_peak_is_current`.
+const TURN_RATE_PEAK: f64 = 0.888;
 
 /// Panel layouts per "page" — (x, y, w, h) as fractions of the page area.
 const LAYOUTS: &[&[(f64, f64, f64, f64)]] = &[
@@ -1255,37 +1279,104 @@ fn draw_panels(
     }
 }
 
-/// Eased 0..1 progress of the turn, or `None` while the spread rests.
-fn turn_phase(t: f64) -> Option<f64> {
+/// State of the sheet while it is mid-turn.
+struct Turn {
+    /// Rotation progress: 0 on the right spread, 1 flat on the left one. Climbs
+    /// a couple of percent past 1 before it settles.
+    progress: f64,
+    /// Angle the free edge runs ahead of the hinge by, in radians. Positive
+    /// while the sheet is being swept, negative for the last moment as the
+    /// sheet comes to rest and the edge swings through.
+    lag: f64,
+}
+
+/// Spring response at `ft` seconds of spring time: rotation progress, plus the
+/// rate at which it changes normalised so an even turn would read 1.
+fn turn_spring(ft: f64) -> (f64, f64) {
+    let zeta = TURN_DAMPING;
+    let omega = TURN_SETTLE / (zeta * FLIP_TIME);
+    let omega_d = omega * (1.0 - zeta * zeta).sqrt();
+    let decay = (-zeta * omega * ft).exp();
+    let phase = omega_d * ft;
+
+    // Step response of a second-order system: 0 at rest, 1 at the target.
+    let progress = 1.0 - decay * (phase.cos() + (zeta * omega / omega_d) * phase.sin());
+
+    // Its derivative. Writing the decay out of the bracket collapses the cosine
+    // terms, leaving a single sine.
+    let speed = decay * phase.sin() * omega * omega / omega_d * FLIP_TIME / std::f64::consts::PI;
+    (progress, speed)
+}
+
+/// The spring runs on an eased clock. A step response tears off the target with
+/// zero speed but full acceleration, and at a turn this slow that reads as a
+/// jerk — the sheet jumps from lying flat to halfway over. Easing the clock
+/// gives the lift a gentle start. `p^1.5` rather than a smoothstep, because a
+/// smoothstep also flattens the *end* of the clock, and the last stretch is
+/// where the sheet settles: flattening it there just parks the sheet early.
+fn turn_clock(p: f64) -> f64 {
+    p * p.sqrt()
+}
+
+/// `turn_clock` differentiated, for turning a rate per unit of spring time into
+/// a rate per unit of the flip.
+fn turn_clock_gain(p: f64) -> f64 {
+    1.5 * p.sqrt()
+}
+
+/// Rotation progress and its real rate at a fraction `p` of the flip.
+fn turn_motion(p: f64) -> (f64, f64) {
+    let (progress, speed) = turn_spring(turn_clock(p) * FLIP_TIME);
+    (progress, speed * turn_clock_gain(p))
+}
+
+/// Motion of the sheet, or `None` while the spread rests.
+fn turn_phase(t: f64) -> Option<Turn> {
     if t < STATIC_TIME {
         return None;
     }
     let ft = t - STATIC_TIME;
-    if ft > FLIP_TIME {
+    if ft >= FLIP_TIME {
         return None;
     }
-    let p = (ft / FLIP_TIME).clamp(0.0, 1.0);
+    let p = ft / FLIP_TIME;
 
-    // Ease-in-out cubic: the sheet picks up speed, then settles onto the spread.
-    Some(if p < 0.5 {
-        4.0 * p * p * p
-    } else {
-        let q = -2.0 * p + 2.0;
-        1.0 - q * q * q / 2.0
+    let (mut progress, rate) = turn_motion(p);
+
+    // Trim the asymptotic remainder over the tail. Without it the sheet would
+    // still be a fraction of a degree off flat when the flip ends, and the
+    // resting spread is drawn from scratch, so that residue showed up as a pop.
+    let (end, _) = turn_spring(FLIP_TIME);
+    let q = ((p - TURN_TRIM_START) / (1.0 - TURN_TRIM_START)).clamp(0.0, 1.0);
+    progress += (1.0 - end) * (q * q * (3.0 - 2.0 * q));
+
+    Some(Turn {
+        progress,
+        // The edge only bends once the sheet is moving, and it unbends as the
+        // sheet comes to rest. Late in the flip the rate goes negative and the
+        // sign flips, which leaves the edge a fraction of a degree up off the
+        // page for the last moment before it settles.
+        lag: PAPER_CURL * rate / TURN_RATE_PEAK,
     })
 }
 
-/// Rotation of the sheet at distance `d` from the spine. The free edge runs a
-/// little ahead of the rigid body, which is what reads as paper bending.
-fn turn_theta_at(d: f64, pw: f64, theta: f64) -> f64 {
-    let envelope = theta.sin().max(0.0);
-    theta + PAPER_CURL * envelope * (d / pw).clamp(0.0, 1.0).powi(3)
+/// Rotation of the sheet at distance `d` from the spine.
+///
+/// The free edge runs ahead of the hinge: the offset grows towards the free
+/// side as a cubic, so the sheet bows smoothly instead of hinging like a plank.
+/// `lag` is that lead, in radians, for this instant.
+fn turn_theta_at(d: f64, pw: f64, theta: f64, lag: f64) -> f64 {
+    let w = (d / pw).clamp(0.0, 1.0).powi(3);
+    theta + lag * w
 }
 
 /// Project a point of the turning page: screen x plus the perspective scale
 /// that applies to the vertical axis.
 fn project_page(d: f64, theta: f64, hinge: f64, cam: f64, cam_x: f64) -> (f64, f64) {
-    let height = d * theta.sin();
+    // Never let the sheet sink below the plane it lies on. Past 180 degrees the
+    // sine goes negative, and feeding that into the perspective would shrink the
+    // whole sheet vertically for as long as the overshoot lasts.
+    let height = (d * theta.sin()).max(0.0);
     let scale = cam / (cam - height).max(cam * 0.2);
     let x = cam_x + scale * (hinge + d * theta.cos() - cam_x);
     (x, scale)
@@ -1345,9 +1436,11 @@ fn page_surface(
 }
 
 /// Soft shadow the lifted sheet throws onto the spread it uncovers.
+#[allow(clippy::too_many_arguments)]
 fn draw_turn_shadow(
     cr: &cairo::Context,
     theta: f64,
+    lag: f64,
     hinge: f64,
     py: f64,
     ph: f64,
@@ -1356,7 +1449,7 @@ fn draw_turn_shadow(
 ) {
     let cam = CAM_HEIGHT * pw;
     let cam_x = hinge + CAM_OFFSET * pw;
-    let (lead_x, _) = project_page(pw, turn_theta_at(pw, pw, theta), hinge, cam, cam_x);
+    let (lead_x, _) = project_page(pw, turn_theta_at(pw, pw, theta, lag), hinge, cam, cam_x);
 
     let alpha = theta.sin().max(0.0) * if is_dark { 0.62 } else { 0.42 };
     if alpha < 0.01 {
@@ -1410,6 +1503,7 @@ fn draw_turning_page(
     surface: &cairo::ImageSurface,
     mirrored: bool,
     theta: f64,
+    lag: f64,
     hinge: f64,
     cy: f64,
     py: f64,
@@ -1426,7 +1520,7 @@ fn draw_turning_page(
     let mut edge: Vec<(f64, f64, f64)> = Vec::with_capacity(TURN_STRIPS + 1);
     for i in 0..=TURN_STRIPS {
         let d = i as f64 * step;
-        let (x, s) = project_page(d, turn_theta_at(d, pw, theta), hinge, cam, cam_x);
+        let (x, s) = project_page(d, turn_theta_at(d, pw, theta, lag), hinge, cam, cam_x);
         edge.push((x, cy + s * (py - cy), cy + s * (py + ph - cy)));
     }
 
@@ -1552,7 +1646,7 @@ fn draw_turning_page(
     let _ = cr.restore();
     // Leading edge of the free side: a light rim so the sheet reads as paper
     // with a thickness.
-    let (edge_x, edge_s) = project_page(pw, turn_theta_at(pw, pw, theta), hinge, cam, cam_x);
+    let (edge_x, edge_s) = project_page(pw, turn_theta_at(pw, pw, theta, lag), hinge, cam, cam_x);
     let edge_top = cy + edge_s * (py - cy);
     let edge_bot = cy + edge_s * (py + ph - cy);
 
@@ -1774,7 +1868,8 @@ fn draw_placeholder_at(
             draw_spine_overlay(cr, cx, py, ph, is_dark);
         }
         // A sheet is being turned.
-        Some(progress) => {
+        Some(turn) => {
+            let progress = turn.progress;
             let theta = std::f64::consts::PI * progress;
             let mirrored = theta > std::f64::consts::FRAC_PI_2;
 
@@ -1794,14 +1889,16 @@ fn draw_placeholder_at(
             draw_panels(cr, right_px, py, pw, ph, right_under, is_dark, 0);
             draw_spine_overlay(cr, cx, py, ph, is_dark);
 
-            draw_turn_shadow(cr, theta, cx, py, ph, pw, is_dark);
+            draw_turn_shadow(cr, theta, turn.lag, cx, py, ph, pw, is_dark);
 
             // The front of the sheet is the page being turned away, its back is
             // the page it becomes on the left half of the next spread.
             let turning_idx = if mirrored { next_left } else { right_idx };
             let (pw_px, ph_px) = (pw.round() as i32, ph.round() as i32);
             if let Some(surface) = page_surface(turning_idx, is_dark, pw_px, ph_px, page_base) {
-                draw_turning_page(cr, &surface, mirrored, theta, cx, cy, py, ph, pw, is_dark);
+                draw_turning_page(
+                    cr, &surface, mirrored, theta, turn.lag, cx, cy, py, ph, pw, is_dark,
+                );
             }
         }
     }
@@ -2164,6 +2261,89 @@ mod tests {
     fn test_dragging_default_false() {
         let priv_ = PreviewPrivate::default();
         assert!(!*priv_.dragging_slider.borrow());
+    }
+
+    /// The turn has to reach the far spread exactly: the resting frame that
+    /// follows is drawn from scratch, so any leftover angle shows up as a pop.
+    #[test]
+    fn test_turn_lands_exactly_flat() {
+        let last = turn_phase(STATIC_TIME + FLIP_TIME - 1e-9).expect("still turning");
+        assert!(
+            (last.progress - 1.0).abs() < 1e-6,
+            "progress {}",
+            last.progress
+        );
+        assert!(turn_phase(STATIC_TIME + FLIP_TIME + 1e-6).is_none());
+        assert!(turn_phase(STATIC_TIME - 1e-9).is_none());
+    }
+
+    /// A spring that does not overshoot would be an ease curve again. The rock
+    /// back onto the far page is the whole reason for using one.
+    #[test]
+    fn test_turn_overshoots_then_settles() {
+        let mut peak: f64 = 0.0;
+        let mut peak_at = 0.0;
+        for i in 0..=300 {
+            let ft = FLIP_TIME * i as f64 / 300.0;
+            let Some(turn) = turn_phase(STATIC_TIME + ft) else {
+                continue;
+            };
+            if turn.progress > peak {
+                peak = turn.progress;
+                peak_at = ft / FLIP_TIME;
+            }
+        }
+        assert!((1.005..=1.05).contains(&peak), "overshoot {peak}");
+        // About seven tenths of the way in, so the sheet has most of its travel
+        // behind it but still time to rock back before the flip ends.
+        assert!((0.6..0.85).contains(&peak_at), "peak at {peak_at}");
+    }
+
+    /// The bow is driven by how fast the sheet is moving, not by its angle, so
+    /// it has to be widest somewhere in the middle of the sweep and gone by the
+    /// time the sheet comes to rest.
+    #[test]
+    fn test_bow_follows_the_sweep() {
+        let mut widest: f64 = 0.0;
+        let mut widest_at = 0.0;
+        for i in 0..=400 {
+            let p = i as f64 / 400.0;
+            let Some(turn) = turn_phase(STATIC_TIME + p * FLIP_TIME) else {
+                continue;
+            };
+            if turn.lag.abs() > widest.abs() {
+                widest = turn.lag;
+                widest_at = p;
+            }
+        }
+        assert!(widest > 0.5 * PAPER_CURL, "bow too shallow: {widest}");
+        assert!(
+            widest <= PAPER_CURL * 1.02,
+            "bow overshoots its gain: {widest}"
+        );
+        // A quarter to a half of the way in, i.e. while the sheet is upright.
+        assert!((0.2..0.5).contains(&widest_at), "widest at {widest_at}");
+
+        // Both ends of the flip are still, so neither may carry a bow.
+        let start = turn_phase(STATIC_TIME + 1e-6).expect("turning");
+        assert!(start.lag.abs() < 1e-3, "bow at start {}", start.lag);
+        let end = turn_phase(STATIC_TIME + FLIP_TIME - 1e-6).expect("turning");
+        assert!(end.lag.abs() < 1e-2, "bow at end {}", end.lag);
+    }
+
+    /// `TURN_RATE_PEAK` only makes `PAPER_DRAG` readable if it really is the
+    /// peak of the rate; if the spring is retuned it has to be updated.
+    #[test]
+    fn test_turn_rate_peak_is_current() {
+        let mut peak: f64 = 0.0;
+        for i in 0..=4000 {
+            let p = i as f64 / 4000.0;
+            peak = peak.max(turn_motion(p).1.abs());
+        }
+        assert!(
+            (peak - TURN_RATE_PEAK).abs() < 0.02 * TURN_RATE_PEAK,
+            "measured {peak}, constant {TURN_RATE_PEAK}"
+        );
     }
 
     /// Render the placeholder animation to PNGs when `PLACEHOLDER_DUMP` names a
