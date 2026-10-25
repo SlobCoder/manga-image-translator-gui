@@ -33,6 +33,22 @@ frontend (`manga-translator-gpui/`), which is not part of this release.
   splitter animation or while the settings panel is collapsed
 - Non-JSON output from the Python backend no longer corrupts the IPC stream
 
+### Build
+- The Flatpak is compiled inside the GNOME 50 SDK (`org.freedesktop.Sdk.Extension.rust-stable`)
+  instead of on the build host, so it is built against the GTK 4.22 /
+  libadwaita 1.9 that the runtime actually ships. Host images only had 1.5.
+- Windows builds use the MSYS2 **UCRT64** environment; MSYS2 retired the
+  msvcrt-based `mingw64` environment in March 2026 and no longer publishes
+  gtk4/libadwaita for it.
+- `appstream-compose` is disabled in the Flatpak manifest. `appstreamcli` in the
+  current GNOME 50 SDK loads icons through glycin, which refuses to start inside
+  a flatpak-builder sandbox (it spawns its loader through `flatpak-spawn`, and
+  `/.flatpak-info` of a *build* sandbox has no `[Application]` group). Metainfo
+  and icons are still installed; only the pre-composed catalogue in
+  `share/app-info` is skipped. Re-enable once the runtime ships a fix.
+- Release assets are named consistently (`MangaTranslator-<version>-<arch>.<ext>`);
+  the 4-part Windows version now only appears inside the MSIX manifest.
+
 ## [0.2.1] — 2026-05-15
 
 ### Added
