@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Changed
+- **Preview placeholder** — the manga spread now turns a real page instead of
+  wiping across it. The sheet lifts off the spine, foreshortens in perspective,
+  bends at the free edge and throws a shadow on the page it uncovers; both
+  themes are handled, and the page lands exactly on the next spread so the loop
+  has no seam. The "Kein Bild geladen" label stays readable while it fills.
+
 ## [0.2.2] — 2026-10-25
 
 GTK frontend release. The repository now also contains the experimental GPUI

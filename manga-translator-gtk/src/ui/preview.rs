@@ -7,7 +7,7 @@
 //   - Original / Translated toggle buttons
 //   - Comparison mode with draggable vertical slider
 //   - Gtk.Overlay with clipped translated layer on top of original
-//   - Gtk.DrawingArea placeholder with comic book panel animation
+//   - Gtk.DrawingArea placeholder with a 3D page-turn animation
 //   - Zoom and fit modes via Gtk.Picture with ContentFit
 //   - File info bar (name, dimensions, size)
 //   - Smooth cross-fade transitions between images
@@ -742,10 +742,29 @@ impl PreviewPrivate {
 // Placeholder drawing — full port of Python ComicBookPlaceholder
 // ---------------------------------------------------------------------------
 
-/// Animation timing constants (matching Python version).
-const STATIC_TIME: f64 = 2.5; // seconds showing static page
-const FLIP_TIME: f64 = 3.0; // seconds for the flip motion
+/// Animation timing constants.
+const STATIC_TIME: f64 = 2.6; // seconds the spread rests before the next turn
+const FLIP_TIME: f64 = 1.5; // seconds one sheet takes to turn over
 const CYCLE: f64 = STATIC_TIME + FLIP_TIME;
+
+// --- Page turn geometry -----------------------------------------------------
+//
+// The turning sheet is projected as if a camera sat above the book plane: a
+// point at distance `d` from the spine, rotated by `theta` about it, is at
+// height `d * sin(theta)` and therefore projects with a scale of
+// `cam / (cam - height)`. The sheet is drawn as thin vertical strips, each with
+// its own affine transform, which yields the perspective without a 3D stack.
+
+/// Camera height above the book plane, in page widths. Large = flat and calm;
+/// the default keeps just enough perspective for the lift to read.
+const CAM_HEIGHT: f64 = 9.5;
+/// Camera offset from the spine, in page widths. A three-quarter view keeps the
+/// sheet readable at 90 degrees instead of collapsing it into a line.
+const CAM_OFFSET: f64 = -0.45;
+/// Vertical strips used to project the turning sheet.
+const TURN_STRIPS: usize = 40;
+/// How far the free edge bends ahead of the rigid rotation, in radians.
+const PAPER_CURL: f64 = 0.36;
 
 /// Panel layouts per "page" — (x, y, w, h) as fractions of the page area.
 const LAYOUTS: &[&[(f64, f64, f64, f64)]] = &[
@@ -836,8 +855,8 @@ fn rrect(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
 
 /// Centered book rectangle with manga tankobon aspect ratio (two pages side-by-side).
 fn book_rect(w: f64, h: f64) -> (f64, f64, f64, f64) {
-    let mx = w * 0.12;
-    let my = h * 0.08;
+    let mx = w * 0.06;
+    let my = h * 0.07;
     let aw = w - mx * 2.0;
     let ah = h - my * 2.0;
     let ratio = 1.3; // Two pages side-by-side
@@ -1236,8 +1255,8 @@ fn draw_panels(
     }
 }
 
-/// Return eased 0..1 during flip, or None when static.
-fn flip_phase(t: f64) -> Option<f64> {
+/// Eased 0..1 progress of the turn, or `None` while the spread rests.
+fn turn_phase(t: f64) -> Option<f64> {
     if t < STATIC_TIME {
         return None;
     }
@@ -1245,129 +1264,333 @@ fn flip_phase(t: f64) -> Option<f64> {
     if ft > FLIP_TIME {
         return None;
     }
-    let mut p = ft / FLIP_TIME;
+    let p = (ft / FLIP_TIME).clamp(0.0, 1.0);
 
-    // Stop motion effect: quantize progress into discrete frames (8 FPS)
-    let steps = (FLIP_TIME * 8.0) as i32;
-    p = (p * steps as f64).floor() / steps as f64;
-
-    // smoothstep
-    Some(p * p * (3.0 - 2.0 * p))
+    // Ease-in-out cubic: the sheet picks up speed, then settles onto the spread.
+    Some(if p < 0.5 {
+        4.0 * p * p * p
+    } else {
+        let q = -2.0 * p + 2.0;
+        1.0 - q * q * q / 2.0
+    })
 }
 
-/// Draw page turn shadow/light effects ON TOP of old panel content.
-fn draw_flip_effect(
+/// Rotation of the sheet at distance `d` from the spine. The free edge runs a
+/// little ahead of the rigid body, which is what reads as paper bending.
+fn turn_theta_at(d: f64, pw: f64, theta: f64) -> f64 {
+    let envelope = theta.sin().max(0.0);
+    theta + PAPER_CURL * envelope * (d / pw).clamp(0.0, 1.0).powi(3)
+}
+
+/// Project a point of the turning page: screen x plus the perspective scale
+/// that applies to the vertical axis.
+fn project_page(d: f64, theta: f64, hinge: f64, cam: f64, cam_x: f64) -> (f64, f64) {
+    let height = d * theta.sin();
+    let scale = cam / (cam - height).max(cam * 0.2);
+    let x = cam_x + scale * (hinge + d * theta.cos() - cam_x);
+    (x, scale)
+}
+
+thread_local! {
+    /// Pages already rendered for the turning sheet. Redrawing the panels into a
+    /// fresh surface on every frame dominated the CPU cost of the placeholder,
+    /// and the same page is on screen for a whole turn.
+    static PAGE_CACHE: std::cell::RefCell<Vec<((usize, bool, i32, i32), cairo::ImageSurface)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Render one page (paper, tone, panels) into its own surface so the turn can
+/// sample it strip by strip instead of redrawing the panels per strip.
+fn page_surface(
+    layout_idx: usize,
+    is_dark: bool,
+    pw: i32,
+    ph: i32,
+    base: (f64, f64, f64),
+) -> Option<cairo::ImageSurface> {
+    let key = (layout_idx, is_dark, pw, ph);
+
+    if let Some(cached) = PAGE_CACHE.with(|cache| {
+        cache
+            .borrow()
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, surface)| surface.clone())
+    }) {
+        return Some(cached);
+    }
+
+    let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, pw.max(1), ph.max(1)).ok()?;
+    {
+        let ctx = cairo::Context::new(&surface).ok()?;
+        ctx.set_operator(cairo::Operator::Source);
+        ctx.set_source_rgb(base.0, base.1, base.2);
+        ctx.paint().ok();
+        ctx.set_operator(cairo::Operator::Over);
+
+        // No paper grain here: the grain is applied once over the finished
+        // spread instead, so the sheet matches the page it lands on exactly.
+        draw_panels(&ctx, 0.0, 0.0, pw as f64, ph as f64, layout_idx, is_dark, 0);
+    }
+
+    PAGE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.len() >= 6 {
+            cache.remove(0);
+        }
+        cache.push((key, surface.clone()));
+    });
+
+    Some(surface)
+}
+
+/// Soft shadow the lifted sheet throws onto the spread it uncovers.
+fn draw_turn_shadow(
     cr: &cairo::Context,
-    fold_x: f64,
+    theta: f64,
+    hinge: f64,
     py: f64,
     ph: f64,
-    curl: f64,
+    pw: f64,
     is_dark: bool,
-    left_px: f64,
-    sweep_w: f64,
 ) {
-    let right_edge = left_px + sweep_w;
-    let page_w = right_edge - fold_x;
+    let cam = CAM_HEIGHT * pw;
+    let cam_x = hinge + CAM_OFFSET * pw;
+    let (lead_x, _) = project_page(pw, turn_theta_at(pw, pw, theta), hinge, cam, cam_x);
 
-    if page_w < 4.0 {
+    let alpha = theta.sin().max(0.0) * if is_dark { 0.62 } else { 0.42 };
+    if alpha < 0.01 {
         return;
     }
 
-    // 1. Shadow cast on new page (left of fold)
-    let shadow_w = (curl * 4.0)
-        .max(14.0)
-        .min(page_w * 0.4)
-        .min(fold_x - left_px - 2.0);
-    if shadow_w > 3.0 {
-        let _ = cr.save();
-        let sg = cairo::LinearGradient::new(fold_x - shadow_w, py, fold_x + 2.0, py);
-        sg.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 0.0);
-        sg.add_color_stop_rgba(0.4, 0.0, 0.0, 0.0, 0.03);
-        sg.add_color_stop_rgba(0.8, 0.0, 0.0, 0.0, 0.12);
-        sg.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, if is_dark { 0.40 } else { 0.22 });
-        cr.set_source(&sg).ok();
-        let _ = cr.rectangle(fold_x - shadow_w, py, shadow_w + 2.0, ph);
-        cr.fill().ok();
-        let _ = cr.restore();
-    }
-
-    // 2. Shadow overlay on turning page (darkens panels near fold)
-    if page_w > 8.0 {
-        let _ = cr.save();
-        let fold_shadow_w = (page_w * 0.40).min(70.0);
-        let fg = cairo::LinearGradient::new(fold_x, py, fold_x + fold_shadow_w, py);
-        if is_dark {
-            fg.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 0.40);
-            fg.add_color_stop_rgba(0.12, 0.0, 0.0, 0.0, 0.22);
-            fg.add_color_stop_rgba(0.40, 0.0, 0.0, 0.0, 0.06);
-            fg.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
-        } else {
-            fg.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 0.28);
-            fg.add_color_stop_rgba(0.12, 0.0, 0.0, 0.0, 0.15);
-            fg.add_color_stop_rgba(0.40, 0.0, 0.0, 0.0, 0.04);
-            fg.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
-        }
-        cr.set_source(&fg).ok();
-        let _ = cr.rectangle(fold_x, py, fold_shadow_w, ph);
-        cr.fill().ok();
-        let _ = cr.restore();
-    }
-
-    // 3. Highlight along fold edge (light catching the page edge)
-    let _ = cr.save();
-    let hl_w = (page_w * 0.08).min(8.0);
-    let hg = cairo::LinearGradient::new(fold_x, py, fold_x + hl_w, py);
-    if is_dark {
-        hg.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.07);
-        hg.add_color_stop_rgba(1.0, 1.0, 1.0, 1.0, 0.0);
+    // The shadow falls on the side the sheet has moved away from.
+    let dir = if theta.cos() >= 0.0 { 1.0 } else { -1.0 };
+    let band = (pw * 0.45).max(16.0);
+    let (x0, x1) = if dir > 0.0 {
+        (lead_x, lead_x + band)
     } else {
-        hg.add_color_stop_rgba(0.0, 1.0, 1.0, 1.0, 0.18);
-        hg.add_color_stop_rgba(1.0, 1.0, 1.0, 1.0, 0.0);
-    }
-    cr.set_source(&hg).ok();
-    let _ = cr.rectangle(fold_x, py, hl_w, ph);
-    cr.fill().ok();
-    let _ = cr.restore();
+        (lead_x - band, lead_x)
+    };
 
-    // 4. Crease line at fold
     let _ = cr.save();
-    cr.set_source_rgba(0.0, 0.0, 0.0, if is_dark { 0.35 } else { 0.12 });
-    cr.set_line_width(1.0);
-    let _ = cr.move_to(fold_x, py);
-    let _ = cr.line_to(fold_x, py + ph);
+
+    // Wide, soft part: the sheet is a hand's width above the spread.
+    let outer = cairo::LinearGradient::new(lead_x, 0.0, lead_x + dir * band, 0.0);
+    outer.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, alpha);
+    outer.add_color_stop_rgba(0.35, 0.0, 0.0, 0.0, alpha * 0.45);
+    outer.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
+    cr.set_source(&outer).ok();
+    let _ = cr.rectangle(x0, py, x1 - x0, ph);
+    cr.fill().ok();
+
+    // Tight, dark core right at the edge, so the sheet visibly leaves the page.
+    let core = (band * 0.18).max(3.0);
+    let (c0, c1) = if dir > 0.0 {
+        (lead_x, lead_x + core)
+    } else {
+        (lead_x - core, lead_x)
+    };
+    let tight = cairo::LinearGradient::new(lead_x, 0.0, lead_x + dir * core, 0.0);
+    tight.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, (alpha * 1.5).min(0.85));
+    tight.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
+    cr.set_source(&tight).ok();
+    let _ = cr.rectangle(c0, py, c1 - c0, ph);
+    cr.fill().ok();
+
+    let _ = cr.restore();
+}
+
+/// Draw the sheet that is mid-turn, one vertical strip at a time.
+///
+/// `mirrored` selects the back of the sheet (once it passes 90 degrees), which
+/// carries the page it is turning into: the left half of the next spread.
+#[allow(clippy::too_many_arguments)]
+fn draw_turning_page(
+    cr: &cairo::Context,
+    surface: &cairo::ImageSurface,
+    mirrored: bool,
+    theta: f64,
+    hinge: f64,
+    cy: f64,
+    py: f64,
+    ph: f64,
+    pw: f64,
+    is_dark: bool,
+) {
+    let cam = CAM_HEIGHT * pw;
+    let cam_x = hinge + CAM_OFFSET * pw;
+    let lift = theta.sin().max(0.0);
+    let step = pw / TURN_STRIPS as f64;
+
+    // Projected boundary along the sheet: (x, y top, y bottom).
+    let mut edge: Vec<(f64, f64, f64)> = Vec::with_capacity(TURN_STRIPS + 1);
+    for i in 0..=TURN_STRIPS {
+        let d = i as f64 * step;
+        let (x, s) = project_page(d, turn_theta_at(d, pw, theta), hinge, cam, cam_x);
+        edge.push((x, cy + s * (py - cy), cy + s * (py + ph - cy)));
+    }
+
+    // Pass 1 — the printed surface. Neighbouring strips share their boundary
+    // exactly and are drawn without overlap, so nothing blends twice.
+    for i in 0..TURN_STRIPS {
+        let d0 = i as f64 * step;
+        let d1 = d0 + step;
+        let (x0, top0, bot0) = edge[i];
+        let (x1, top1, bot1) = edge[i + 1];
+        if !(x0.is_finite() && x1.is_finite()) {
+            continue;
+        }
+
+        // Front face: the surface is measured from the spine (x = d).
+        // Back face: the same sheet seen from behind, so x = pw - d.
+        let (src0, src1) = if mirrored {
+            (pw - d0, pw - d1)
+        } else {
+            (d0, d1)
+        };
+        let src_dx = src1 - src0;
+        if src_dx.abs() < 1e-6 {
+            continue;
+        }
+
+        let sy = 0.5 * ((top0 - cy) + (top1 - cy)) / (py - cy);
+        let top_mid = cy + sy * (py - cy);
+        let sx = (x1 - x0) / src_dx;
+
+        let _ = cr.save();
+        let _ = cr.move_to(x0, top0);
+        let _ = cr.line_to(x1, top1);
+        let _ = cr.line_to(x1, bot1);
+        let _ = cr.line_to(x0, bot0);
+        cr.close_path();
+        cr.clip();
+
+        // The surface starts at (0, 0), so the page's top edge is `top_mid` —
+        // not `top_mid - py`, which shifted the whole sheet up by the page offset.
+        cr.transform(cairo::Matrix::new(
+            sx,
+            0.0,
+            0.0,
+            sy,
+            x0 - src0 * sx,
+            top_mid,
+        ));
+        // `set_source_surface` locks the pattern to the user space in effect
+        // here; creating a bare SurfacePattern does not, and painted nothing.
+        cr.set_source_surface(surface, 0.0, 0.0).ok();
+        // These strips are only a few pixels wide, so the slower resampling path
+        // of the default filter costs far more than it shows.
+        cr.source().set_filter(cairo::Filter::Fast);
+        cr.paint().ok();
+        let _ = cr.restore();
+    }
+
+    // Pass 2 — one gradient across the whole silhouette. A sheet lifted towards
+    // the light catches it: brightest while it stands up, dimmer towards the
+    // free edge where the paper curls away. On a light theme the same shape has
+    // to read as a shadow instead.
+    let _ = cr.save();
+    let _ = cr.move_to(edge[0].0, edge[0].1);
+    for p in &edge[1..] {
+        let _ = cr.line_to(p.0, p.1);
+    }
+    for p in edge.iter().rev() {
+        let _ = cr.line_to(p.0, p.2);
+    }
+    cr.close_path();
+    cr.clip();
+
+    let spine_x = edge[0].0;
+    let lead_x = edge[TURN_STRIPS].0;
+    let dir = if lead_x >= spine_x { 1.0 } else { -1.0 };
+
+    let (tint, strength) = if is_dark {
+        ((1.0, 1.0, 1.0), 1.0)
+    } else {
+        ((0.0, 0.0, 0.0), 0.55)
+    };
+    let sheen = lift * if mirrored { 0.12 } else { 0.22 } * strength;
+    if sheen > 0.004 {
+        // Never fade to zero across the sheet: the sheet has to read as one
+        // surface, with the light falling off only towards the curled edge.
+        let g = cairo::LinearGradient::new(spine_x, 0.0, lead_x, 0.0);
+        g.add_color_stop_rgba(0.0, tint.0, tint.1, tint.2, sheen * 0.55);
+        g.add_color_stop_rgba(0.30, tint.0, tint.1, tint.2, sheen);
+        g.add_color_stop_rgba(0.80, tint.0, tint.1, tint.2, sheen * 0.75);
+        g.add_color_stop_rgba(1.0, tint.0, tint.1, tint.2, sheen * 0.5);
+        cr.set_source(&g).ok();
+        cr.paint().ok();
+    }
+
+    // The curled free edge turns away from the light.
+    let curl = lift * 0.34;
+    if curl > 0.004 {
+        let band = ((lead_x - spine_x).abs() * 0.22).max(2.0);
+        let g = cairo::LinearGradient::new(lead_x, 0.0, lead_x - dir * band, 0.0);
+        g.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, curl.min(0.34));
+        g.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
+        cr.set_source(&g).ok();
+        cr.paint().ok();
+    }
+    // Crisp outline of the sheet, so its edges stay readable independent of how
+    // much light happens to fall on them.
+    let outline = lift * if is_dark { 0.28 } else { 0.35 };
+    if outline > 0.004 {
+        cr.set_source_rgba(1.0, 1.0, 1.0, outline);
+        cr.set_line_width(1.0);
+        let _ = cr.move_to(edge[0].0, edge[0].1);
+        for p in &edge[1..] {
+            let _ = cr.line_to(p.0, p.1);
+        }
+        for p in edge.iter().rev() {
+            let _ = cr.line_to(p.0, p.2);
+        }
+        // Left open on purpose: the hinge edge sits in the gutter and should not
+        // get a bright line of its own.
+        let _ = cr.stroke();
+    }
+    let _ = cr.restore();
+    // Leading edge of the free side: a light rim so the sheet reads as paper
+    // with a thickness.
+    let (edge_x, edge_s) = project_page(pw, turn_theta_at(pw, pw, theta), hinge, cam, cam_x);
+    let edge_top = cy + edge_s * (py - cy);
+    let edge_bot = cy + edge_s * (py + ph - cy);
+
+    let _ = cr.save();
+    cr.set_source_rgba(1.0, 1.0, 1.0, if is_dark { 0.34 } else { 0.65 } * lift);
+    cr.set_line_width((pw * 0.008).clamp(0.8, 1.8));
+    let _ = cr.move_to(edge_x, edge_top);
+    let _ = cr.line_to(edge_x, edge_bot);
     let _ = cr.stroke();
     let _ = cr.restore();
+}
+/// Gutter crease and inner shadow, drawn after the page content so the panels
+/// do not paint over it.
+fn draw_spine_overlay(cr: &cairo::Context, cx: f64, py: f64, ph: f64, is_dark: bool) {
+    let width = (ph * 0.035).clamp(6.0, 16.0);
+    let strength = if is_dark { 0.38 } else { 0.18 };
 
-    // 5. Slight darkening at leading edge (page thickness)
-    if page_w > 20.0 {
-        let _ = cr.save();
-        let edge_w = (page_w * 0.07).min(6.0);
-        let eg = cairo::LinearGradient::new(right_edge - edge_w, py, right_edge, py);
-        if is_dark {
-            eg.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 0.0);
-            eg.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.18);
-        } else {
-            eg.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 0.0);
-            eg.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.10);
-        }
-        cr.set_source(&eg).ok();
-        let _ = cr.rectangle(right_edge - edge_w, py, edge_w, ph);
-        cr.fill().ok();
-        let _ = cr.restore();
-    }
+    let _ = cr.save();
+    let left = cairo::LinearGradient::new(cx - width, 0.0, cx, 0.0);
+    left.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, 0.0);
+    left.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, strength);
+    cr.set_source(&left).ok();
+    let _ = cr.rectangle(cx - width, py, width, ph);
+    cr.fill().ok();
 
-    // 6. Drop shadow beneath turning page
-    if curl > 2.0 && page_w > 10.0 {
-        let _ = cr.save();
-        let shadow_h = (curl * 1.5).min(8.0);
-        let ds = cairo::LinearGradient::new(fold_x, py + ph - 1.0, fold_x, py + ph + shadow_h);
-        ds.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, if is_dark { 0.14 } else { 0.07 });
-        ds.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
-        cr.set_source(&ds).ok();
-        let _ = cr.rectangle(fold_x, py + ph - 1.0, page_w, shadow_h + 1.0);
-        cr.fill().ok();
-        let _ = cr.restore();
-    }
+    let right = cairo::LinearGradient::new(cx, 0.0, cx + width, 0.0);
+    right.add_color_stop_rgba(0.0, 0.0, 0.0, 0.0, strength);
+    right.add_color_stop_rgba(1.0, 0.0, 0.0, 0.0, 0.0);
+    cr.set_source(&right).ok();
+    let _ = cr.rectangle(cx, py, width, ph);
+    cr.fill().ok();
+
+    cr.set_source_rgba(0.0, 0.0, 0.0, if is_dark { 0.45 } else { 0.22 });
+    cr.set_line_width(1.0);
+    let _ = cr.move_to(cx, py);
+    let _ = cr.line_to(cx, py + ph);
+    let _ = cr.stroke();
+    let _ = cr.restore();
 }
 
 /// Draw "Kein Bild geladen" loading text with hollow-to-fill progress bar effect and glow.
@@ -1403,39 +1626,26 @@ fn draw_loading_text(
         return;
     }
 
-    // Colors
-    let (fill_r, fill_g, fill_b) = if is_dark {
-        (0.78, 0.78, 0.78)
+    // Colours: the unfilled part stays readable instead of turning into a
+    // black outline, which on a dark placeholder looked like broken text.
+    let (base_r, base_g, base_b) = if is_dark {
+        (0.34, 0.34, 0.37)
     } else {
-        (1.0, 1.0, 1.0)
+        (0.60, 0.60, 0.64)
+    };
+    let (fill_r, fill_g, fill_b) = if is_dark {
+        (0.93, 0.93, 0.95)
+    } else {
+        (0.10, 0.10, 0.12)
     };
 
-    // Pulse-glow effect
-    let pulse = 0.5 + 0.5 * (t * std::f64::consts::PI).sin(); // 0→1→0 over ~2s
-    let glow_layers: [(f64, f64); 3] = [
-        ((font_size * 0.45).max(8.0), 0.08 + pulse * 0.14),
-        ((font_size * 0.25).max(5.0), 0.12 + pulse * 0.20),
-        ((font_size * 0.12).max(2.5), 0.18 + pulse * 0.28),
-    ];
-    for (line_w, alpha) in glow_layers {
-        let _ = cr.save();
-        cr.set_source_rgba(1.0, 1.0, 1.0, alpha);
-        cr.set_line_width(line_w);
-        let _ = cr.move_to(tx, ty);
-        let _ = cr.text_path(&text);
-        let _ = cr.stroke();
-        let _ = cr.restore();
-    }
-
-    // Hollow outline (always visible)
-    cr.set_source_rgb(0.0, 0.0, 0.0);
-    cr.set_line_width((font_size * 0.18).max(2.5));
+    // Unfilled text plus a soft pulse, so it never looks stale.
+    cr.set_source_rgb(base_r, base_g, base_b);
     let _ = cr.move_to(tx, ty);
-    let _ = cr.text_path(&text);
-    let _ = cr.stroke();
+    let _ = cr.show_text(&text);
 
-    // Fill text left-to-right with progress clip
-    let progress = t / CYCLE; // 0.0 → ~1.0 over the cycle
+    // Fill left-to-right, tied to the cycle.
+    let progress = (t / CYCLE).clamp(0.0, 1.0);
     if progress > 0.005 {
         let clip_w = extents.width() * progress;
         let _ = cr.save();
@@ -1446,6 +1656,21 @@ fn draw_loading_text(
             extents.height() + 6.0,
         );
         cr.clip();
+
+        // A small glow behind the filled part reads as a highlight running
+        // across the label rather than a hard wipe.
+        let pulse = 0.5 + 0.5 * (t * std::f64::consts::PI).sin();
+        cr.set_source_rgba(
+            1.0,
+            1.0,
+            1.0,
+            if is_dark { 0.10 + pulse * 0.10 } else { 0.0 },
+        );
+        cr.set_line_width((font_size * 0.35).max(4.0));
+        let _ = cr.move_to(tx, ty);
+        let _ = cr.text_path(&text);
+        let _ = cr.stroke();
+
         cr.set_source_rgb(fill_r, fill_g, fill_b);
         let _ = cr.move_to(tx, ty);
         let _ = cr.show_text(&text);
@@ -1459,8 +1684,38 @@ fn draw_loading_text(
 ///
 /// Ported from Python ComicBookPlaceholder — draws a two-page manga book
 /// with panels, speech bubbles, screentone textures, hanko stamps,
-/// and a realistic page-flip animation with shadow/light effects.
+/// and a page that lifts off the spine and turns over, with perspective,
+/// paper curl, curvature shading and a cast shadow.
 fn draw_placeholder(cr: &cairo::Context, width: i32, height: i32) {
+    // Time-based animation state (stateless — computed from system clock)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let total_secs = now.as_secs_f64();
+
+    let cycle_number = (total_secs / CYCLE) as usize;
+    let t = total_secs % CYCLE;
+
+    draw_placeholder_at(
+        cr,
+        width,
+        height,
+        t,
+        cycle_number,
+        adw::StyleManager::default().is_dark(),
+    );
+}
+
+/// Draw the placeholder for an explicit point in the animation. Split out from
+/// [`draw_placeholder`] so the frames can be rendered deterministically.
+fn draw_placeholder_at(
+    cr: &cairo::Context,
+    width: i32,
+    height: i32,
+    t: f64,
+    cycle_number: usize,
+    is_dark: bool,
+) {
     let w = width as f64;
     let h = height as f64;
 
@@ -1468,20 +1723,7 @@ fn draw_placeholder(cr: &cairo::Context, width: i32, height: i32) {
         return;
     }
 
-    // Time-based animation state (stateless — computed from system clock)
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let total_secs = now.as_secs_f64();
-
-    // Cycle state derived from time
-    let cycle_number = (total_secs / CYCLE) as usize;
-    let t = total_secs % CYCLE;
     let page = (cycle_number * 2) % LAYOUTS.len();
-    let cycle_count = cycle_number;
-
-    // Dark mode detection
-    let is_dark = adw::StyleManager::default().is_dark();
 
     // Background fill
     if is_dark {
@@ -1493,90 +1735,80 @@ fn draw_placeholder(cr: &cairo::Context, width: i32, height: i32) {
 
     // Book rectangle
     let (bx, by, bw, bh) = book_rect(w, h);
-    let sw = bw * 0.025;
+    let sw = bw * 0.02;
 
     // Book structure (shadow, stacked pages, spine)
     draw_book(cr, bx, by, bw, bh, sw, is_dark);
 
-    // Page content area (two pages)
-    let pw = (bw - sw) / 2.0 - 6.0;
-    let ph = bh - 6.0;
-    let left_px = bx + 3.0;
-    let right_px = bx + bw / 2.0 + sw / 2.0 + 3.0;
-    let py = by + 3.0;
+    // Page geometry. Both halves share the hinge at the spine, which is what
+    // lets the turning sheet land exactly on the left half at 180 degrees.
+    let inset = 3.0;
+    let ph = bh - inset * 2.0;
+    let pw = (bw - sw) / 2.0 - inset;
+    let cx = bx + bw / 2.0;
+    let cy = by + bh / 2.0;
+    let py = by + inset;
+    let left_px = cx - pw;
+    let right_px = cx;
 
-    // Subtle paper texture on both pages
+    // Subtle paper texture on both halves
     draw_paper_texture(cr, left_px, py, pw, ph, is_dark);
     draw_paper_texture(cr, right_px, py, pw, ph, is_dark);
 
-    let right_page_idx = (page + 1) % LAYOUTS.len();
-    let sweep_w = right_px + pw - left_px;
-
-    let phase = flip_phase(t);
-
-    if let Some(phase_val) = phase {
-        let fold_x = left_px + sweep_w * phase_val;
-        let curl = (phase_val * std::f64::consts::PI).sin() * sweep_w * 0.10;
-
-        // 1. Draw NEW pages (left of fold)
-        let _ = cr.save();
-        let _ = cr.rectangle(left_px, py, fold_x - left_px, ph);
-        cr.clip();
-        draw_panels(
-            cr,
-            left_px,
-            py,
-            pw,
-            ph,
-            (page + 2) % LAYOUTS.len(),
-            is_dark,
-            cycle_count + 1,
-        );
-        draw_panels(
-            cr,
-            right_px,
-            py,
-            pw,
-            ph,
-            (page + 3) % LAYOUTS.len(),
-            is_dark,
-            cycle_count + 1,
-        );
-        let _ = cr.restore();
-
-        // 2. Draw OLD pages (right of fold)
-        let _ = cr.save();
-        let _ = cr.rectangle(fold_x, py, sweep_w - (fold_x - left_px), ph);
-        cr.clip();
-        draw_panels(cr, left_px, py, pw, ph, page, is_dark, cycle_count);
-        draw_panels(
-            cr,
-            right_px,
-            py,
-            pw,
-            ph,
-            right_page_idx,
-            is_dark,
-            cycle_count,
-        );
-        let _ = cr.restore();
-
-        // 3. Page turn shadow/light effects
-        draw_flip_effect(cr, fold_x, py, ph, curl, is_dark, left_px, sweep_w);
+    let page_base = if is_dark {
+        (0.15, 0.15, 0.15)
     } else {
-        // Static pages
-        draw_panels(cr, left_px, py, pw, ph, page, is_dark, cycle_count);
-        draw_panels(
-            cr,
-            right_px,
-            py,
-            pw,
-            ph,
-            right_page_idx,
-            is_dark,
-            cycle_count,
-        );
+        (0.98, 0.98, 0.98)
+    };
+
+    let left_idx = page;
+    let right_idx = (page + 1) % LAYOUTS.len();
+    let next_left = (page + 2) % LAYOUTS.len();
+    let next_right = (page + 3) % LAYOUTS.len();
+
+    match turn_phase(t) {
+        // Resting spread.
+        None => {
+            draw_panels(cr, left_px, py, pw, ph, left_idx, is_dark, 0);
+            draw_panels(cr, right_px, py, pw, ph, right_idx, is_dark, 0);
+            draw_spine_overlay(cr, cx, py, ph, is_dark);
+        }
+        // A sheet is being turned.
+        Some(progress) => {
+            let theta = std::f64::consts::PI * progress;
+            let mirrored = theta > std::f64::consts::FRAC_PI_2;
+
+            // Near either end the sheet lies flat on a page it matches, so draw
+            // that page underneath as well: the hairlines between strips then
+            // blend into identical content instead of revealing the old page.
+            let left_under = if progress > 0.97 { next_left } else { left_idx };
+            let right_under = if progress < 0.03 {
+                right_idx
+            } else {
+                next_right
+            };
+
+            // Underneath: the old left page, plus the page the turn uncovers on
+            // the right as soon as the sheet lifts off it.
+            draw_panels(cr, left_px, py, pw, ph, left_under, is_dark, 0);
+            draw_panels(cr, right_px, py, pw, ph, right_under, is_dark, 0);
+            draw_spine_overlay(cr, cx, py, ph, is_dark);
+
+            draw_turn_shadow(cr, theta, cx, py, ph, pw, is_dark);
+
+            // The front of the sheet is the page being turned away, its back is
+            // the page it becomes on the left half of the next spread.
+            let turning_idx = if mirrored { next_left } else { right_idx };
+            let (pw_px, ph_px) = (pw.round() as i32, ph.round() as i32);
+            if let Some(surface) = page_surface(turning_idx, is_dark, pw_px, ph_px, page_base) {
+                draw_turning_page(cr, &surface, mirrored, theta, cx, cy, py, ph, pw, is_dark);
+            }
+        }
     }
+    // Paper grain over the finished spread, applied once: the turning sheet comes
+    // from a cached surface, so a second grain pass at a different phase used to
+    // make the texture flicker the moment the turn ended.
+    draw_paper_texture(cr, left_px, py, pw * 2.0, ph, is_dark);
 
     // Loading text with progress fill and glow
     draw_loading_text(cr, bx, by, bw, bh, is_dark, w, h, t);
@@ -1932,5 +2164,37 @@ mod tests {
     fn test_dragging_default_false() {
         let priv_ = PreviewPrivate::default();
         assert!(!*priv_.dragging_slider.borrow());
+    }
+
+    /// Render the placeholder animation to PNGs when `PLACEHOLDER_DUMP` names a
+    /// directory. Lets the page turn be reviewed frame by frame without a
+    /// compositor or a running window; a plain `cargo test` writes nothing.
+    #[test]
+    fn dump_placeholder_frames() {
+        let Some(dir) = std::env::var_os("PLACEHOLDER_DUMP") else {
+            return;
+        };
+        let dir = std::path::PathBuf::from(dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let (w, h) = (420, 720);
+        // Sample by absolute time so the cycle boundary is covered too: that is
+        // where the turned sheet has to hand over to the next resting spread.
+        let steps = (CYCLE * 2.0 / 0.05) as usize;
+
+        for i in 0..=steps {
+            let total = i as f64 * 0.05;
+            let cycle_number = (total / CYCLE) as usize;
+            let t = total % CYCLE;
+
+            let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).unwrap();
+            {
+                let cr = cairo::Context::new(&surface).unwrap();
+                draw_placeholder_at(&cr, w, h, t, cycle_number, true);
+            }
+            let path = dir.join(format!("ph_{total:06.2}.png"));
+            let mut file = std::fs::File::create(path).unwrap();
+            surface.write_to_png(&mut file).unwrap();
+        }
     }
 }
