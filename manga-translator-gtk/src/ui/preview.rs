@@ -1516,6 +1516,17 @@ fn draw_turning_page(
     let lift = theta.sin().max(0.0);
     let step = pw / TURN_STRIPS as f64;
 
+    // Width of one device pixel in the coordinates the strips are laid out in.
+    // Snapping against this rather than a plain integer keeps the clip edges on
+    // pixel boundaries even at a fractional UI scale (1.25, 1.5 on Wayland),
+    // where whole user-space units land between pixels.
+    let pixel = cr
+        .device_to_user_distance(1.0, 1.0)
+        .map(|(dx, _)| dx)
+        .ok()
+        .filter(|dx| *dx > 0.0)
+        .unwrap_or(1.0);
+
     // Projected boundary along the sheet: (x, y top, y bottom).
     let mut edge: Vec<(f64, f64, f64)> = Vec::with_capacity(TURN_STRIPS + 1);
     for i in 0..=TURN_STRIPS {
@@ -1552,10 +1563,22 @@ fn draw_turning_page(
         let sx = (x1 - x0) / src_dx;
 
         let _ = cr.save();
-        let _ = cr.move_to(x0, top0);
-        let _ = cr.line_to(x1, top1);
-        let _ = cr.line_to(x1, bot1);
-        let _ = cr.line_to(x0, bot0);
+        // Neighbouring strips share this boundary exactly, but the clip is
+        // antialiased, so at the shared column each one only reached partial
+        // coverage and the page underneath bled through as a hairline — bright
+        // over the panels, with the red seal of the spread below visible inside
+        // it. Snapping the two vertical clip edges to whole pixels puts them on
+        // pixel boundaries, where coverage is already all-or-nothing, so the
+        // strips tile without a gap while the top and bottom edges — the ones
+        // that actually need smoothing — keep their antialiasing. Overlapping the
+        // strips instead makes it worse: two partial coverages under `Over` blend
+        // two different resamplings of the page into a visible line.
+        let cx0 = (x0 / pixel).round() * pixel;
+        let cx1 = (x1 / pixel).round() * pixel;
+        let _ = cr.move_to(cx0, top0);
+        let _ = cr.line_to(cx1, top1);
+        let _ = cr.line_to(cx1, bot1);
+        let _ = cr.line_to(cx0, bot0);
         cr.close_path();
         cr.clip();
 

@@ -18,6 +18,17 @@ All notable changes to this project will be documented in this file.
   function of the angle: its bend follows the actual sweep speed, so it builds up
   after the lift starts and relaxes as the sheet lands.
 
+### Fixed
+- **Vertical hairlines across the turning page** — the sheet is projected as 40
+  vertical strips and neighbouring strips share a boundary exactly, but with an
+  antialiased clip each one only reached partial coverage on that shared column.
+  The result was a vertical hairline every few pixels, bright across the panels,
+  with the red seal of the spread underneath visible inside it. The strip
+  boundaries are now snapped to whole device pixels, where coverage is already
+  all-or-nothing, so they tile without a gap while the sheet's own silhouette
+  keeps its antialiasing. Snapping in device pixels rather than whole user units
+  also covers fractional UI scales (1.25, 1.5 on Wayland).
+
 ## [0.2.2] — 2026-10-25
 
 GTK frontend release. The repository now also contains the experimental GPUI
