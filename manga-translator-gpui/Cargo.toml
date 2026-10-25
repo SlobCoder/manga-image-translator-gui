@@ -13,12 +13,10 @@ path = "src/main.rs"
 manga-translator-core = { path = "../manga-translator-core" }
 
 gpui = "0.2"
-gettext-rs = { version = "0.7", features = ["gettext-system"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 log = "0.4"
 env_logger = "0.11"
-dirs = "6"
 image = "0.25"
 unicode-segmentation = "1"
 alphanumeric-sort = "1"

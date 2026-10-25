@@ -221,7 +221,11 @@ pub fn register_dropdown_items(dropdown: &gtk::DropDown, msgids: &'static [&'sta
 ///   2. `./po/`  (development mode)
 ///   3. System default paths
 pub fn init() {
-    setlocale(LocaleCategory::LcAll, "");
+    // SAFETY: `setlocale` mutates process-global state and is not reentrant;
+    // it runs on the main thread during startup.
+    unsafe {
+        setlocale(LocaleCategory::LcAll, "");
+    }
 
     // Try to find the locale directory
     if let Some(locale_dir) = find_locale_dir() {
@@ -264,7 +268,11 @@ pub fn set_language(lang: &str) {
 
     // Reset locale to system default. gettext needs a valid locale for
     // charset handling, but the translation *language* comes from LANGUAGE.
-    setlocale(LocaleCategory::LcAll, "");
+    // SAFETY: `setlocale` mutates process-global state and is not reentrant.
+    // It is only called from the main thread, as part of language setup.
+    unsafe {
+        setlocale(LocaleCategory::LcAll, "");
+    }
 
     // Re-bind text domain in case it was lost
     if let Some(locale_dir) = find_locale_dir() {

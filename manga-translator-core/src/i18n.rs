@@ -8,7 +8,7 @@
 // switching and the `t()` lookup used by `config.rs`.
 
 use gettextrs::{
-    bind_textdomain_codeset, bindtextdomain, gettext, setlocale, textdomain, LocaleCategory,
+    LocaleCategory, bind_textdomain_codeset, bindtextdomain, gettext, setlocale, textdomain,
 };
 use std::path::PathBuf;
 
@@ -31,7 +31,11 @@ const TEXT_DOMAIN: &str = "manga-translator";
 
 /// Initialize gettext with the locale directory.
 pub fn init() {
-    setlocale(LocaleCategory::LcAll, "");
+    // SAFETY: `setlocale` mutates process-global state and is not reentrant;
+    // it runs on the main thread during startup.
+    unsafe {
+        setlocale(LocaleCategory::LcAll, "");
+    }
 
     if let Some(locale_dir) = find_locale_dir() {
         bindtextdomain(TEXT_DOMAIN, &locale_dir).ok();
@@ -55,7 +59,11 @@ pub fn set_language(lang: &str) {
         std::env::set_var("LANGUAGE", lang);
     }
 
-    setlocale(LocaleCategory::LcAll, "");
+    // SAFETY: `setlocale` mutates process-global state and is not reentrant.
+    // It is only called from the main thread, as part of language setup.
+    unsafe {
+        setlocale(LocaleCategory::LcAll, "");
+    }
 
     if let Some(locale_dir) = find_locale_dir() {
         let _ = bindtextdomain(TEXT_DOMAIN, &locale_dir);

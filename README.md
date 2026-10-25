@@ -66,10 +66,14 @@ chmod +x MangaTranslator-0.2.1-x86_64.AppImage
 ## Requirements
 
 ### System
-- **GTK4** 4.10+
-- **libadwaita** 1.5+
+- **GTK4** 4.22+ (libadwaita 1.9 needs at least 4.21.1)
+- **libadwaita** 1.9+
 - **Python** 3.10+ (in a virtual environment)
 - **Rust** 1.85+ (edition 2024, only needed when building from source)
+
+> Distributions older than GNOME 50 (for example Ubuntu 24.04 with libadwaita 1.5)
+> can no longer build this from source. Use the Flatpak or AppImage build there — they
+> bundle their own libraries.
 
 ### Python dependencies
 A virtual environment with [manga-image-translator](https://github.com/zyddnys/manga-image-translator) installed. For example with micromamba:

@@ -533,6 +533,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
+name = "base64"
+version = "0.23.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ac07cdecf99051d9a5238b80f35af32cdeba5b336e55d957b318b50137e18da5"
+
+[[package]]
 name = "bindgen"
 version = "0.71.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1412,9 +1418,9 @@ dependencies = [
 
 [[package]]
 name = "dirs"
-version = "6.0.0"
+version = "7.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3e8aa94d75141228480295a7d0e7feb620b1a5ad9f12bc40be62411e38cce4e"
+checksum = "8d57d423b3c82e89b9a24ca3091fee61f456a26edbd28d26c65906f4bc1dcd8f"
 dependencies = [
  "dirs-sys 0.5.0",
 ]
@@ -2124,9 +2130,9 @@ dependencies = [
 
 [[package]]
 name = "gettext-rs"
-version = "0.7.7"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d5857dc1b7f0fee86961de833f434e29494d72af102ce5355738c0664222bdf"
+checksum = "9df5e3fa8c077b15fdfa8ce130e2bc73d663b8aaa6d51b71421b8659980b1d80"
 dependencies = [
  "gettext-sys",
  "locale_config",
@@ -2612,18 +2618,18 @@ dependencies = [
 
 [[package]]
 name = "hotpath"
-version = "0.14.1"
+version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7d9982fcb4356a5260502f0e646411ec1feb2962cc98c230777104a8d1c5ed3"
+checksum = "5b4af2b5ecf2650278fe33b0e49b68c8c484d2306475c127628316dea740cf5c"
 dependencies = [
  "hotpath-macros",
 ]
 
 [[package]]
 name = "hotpath-macros"
-version = "0.14.1"
+version = "0.29.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4398eddb78466298f1ddcc739abbbd8a942e541d1972c7590bd83de364e626e0"
+checksum = "08c0a42eb299ebb7ec6b9161489e5bf132603a34ca12cecadb8490937aa0492a"
 
 [[package]]
 name = "http"
@@ -3294,8 +3300,8 @@ dependencies = [
 name = "manga-translator-core"
 version = "0.2.1"
 dependencies = [
- "base64",
- "dirs 6.0.0",
+ "base64 0.23.1",
+ "dirs 7.0.0",
  "gettext-rs",
  "hotpath",
  "log",
@@ -3309,9 +3315,7 @@ version = "0.1.0"
 dependencies = [
  "alphanumeric-sort",
  "async-channel 2.5.0",
- "dirs 6.0.0",
  "env_logger",
- "gettext-rs",
  "gpui",
  "image",
  "log",
@@ -6088,7 +6092,7 @@ version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "80be9b06fbae3b8b303400ab20778c80bbaf338f563afe567cf3c9eea17b47ef"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "data-url",
  "flate2",
  "fontdb 0.23.0",
@@ -7257,7 +7261,7 @@ version = "0.12.15-zed"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac2d05756ff48539950c3282ad7acf3817ad3f08797c205ad1c34a2ce03b9970"
 dependencies = [
- "base64",
+ "base64 0.22.1",
  "bytes",
  "encoding_rs",
  "futures-core",

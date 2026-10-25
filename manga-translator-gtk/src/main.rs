@@ -181,9 +181,9 @@ fn hotpath_init() -> hotpath::HotpathGuard {
     use hotpath::{Format, HotpathGuardBuilder, Section};
 
     HotpathGuardBuilder::new("main")
-        .percentiles(&[50, 95, 99])
-        .with_functions_limit(30)
-        .with_sections(vec![
+        .percentiles(&[50.0, 95.0, 99.0])
+        .functions_limit(30)
+        .sections(vec![
             Section::FunctionsTiming,
             Section::FunctionsAlloc,
             Section::Threads,
