@@ -32,3 +32,8 @@ hotpath = "0.14"
 default = []
 hotpath = ["hotpath/hotpath", "manga-translator-core/hotpath"]
 hotpath-alloc = ["hotpath/hotpath-alloc", "manga-translator-core/hotpath-alloc"]
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 16

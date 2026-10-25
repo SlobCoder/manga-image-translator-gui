@@ -24,6 +24,128 @@ use std::rc::Rc;
 use crate::i18n;
 
 // ---------------------------------------------------------------------------
+// Off-thread page decoding
+// ---------------------------------------------------------------------------
+
+/// A page decoded on a worker thread, in the exact byte layout the main thread
+/// needs: tightly packed BGRA, premultiplied.
+///
+/// That layout is valid both for a `gdk::MemoryTexture`
+/// (`B8g8r8a8Premultiplied`) and for a Cairo `ARgb32` surface, so a single
+/// buffer feeds the picture and the comparison overlay.
+struct DecodedPage {
+    width: i32,
+    height: i32,
+    pixels: Vec<u8>,
+}
+
+/// Decode an image for display. Must run off the main thread.
+///
+/// gdk-pixbuf is thread-safe — the thumbnail loader already runs it on worker
+/// threads — while GDK objects are not, so only the decoding moves.
+///
+/// This replaces the previous main-thread sequence
+/// `Texture::from_bytes` → `texture.download()` → per-pixel R↔B swap, which
+/// cost 4–10 ms per 1064×1510 page and scales with the page size.
+fn decode_page(path: &std::path::Path) -> Option<DecodedPage> {
+    let pixbuf = gdk_pixbuf::Pixbuf::from_file(path).ok()?;
+
+    let width = pixbuf.width();
+    let height = pixbuf.height();
+    let channels = pixbuf.n_channels() as usize;
+    let rowstride = pixbuf.rowstride() as usize;
+    let row_bytes = width as usize * 4;
+
+    let storage = pixbuf.read_pixel_bytes();
+    let source: &[u8] = storage.as_ref();
+
+    let mut pixels = vec![0u8; row_bytes * height as usize];
+    match channels {
+        4 => {
+            for (out_row, row) in pixels
+                .chunks_exact_mut(row_bytes)
+                .zip(source.chunks_exact(rowstride))
+            {
+                for (out, px) in out_row
+                    .chunks_exact_mut(4)
+                    .zip(row[..row_bytes].chunks_exact(4))
+                {
+                    let alpha = px[3];
+                    if alpha == 255 {
+                        out[0] = px[2];
+                        out[1] = px[1];
+                        out[2] = px[0];
+                        out[3] = 255;
+                    } else {
+                        let scale = |c: u8| ((c as u32 * alpha as u32 + 127) / 255) as u8;
+                        out[0] = scale(px[2]);
+                        out[1] = scale(px[1]);
+                        out[2] = scale(px[0]);
+                        out[3] = alpha;
+                    }
+                }
+            }
+        }
+        3 => {
+            for (out_row, row) in pixels
+                .chunks_exact_mut(row_bytes)
+                .zip(source.chunks_exact(rowstride))
+            {
+                for (out, px) in out_row
+                    .chunks_exact_mut(4)
+                    .zip(row.chunks_exact(3).take(width as usize))
+                {
+                    out[0] = px[2];
+                    out[1] = px[1];
+                    out[2] = px[0];
+                    out[3] = 255;
+                }
+            }
+        }
+        other => {
+            log::warn!("unsupported pixbuf channel count: {}", other);
+            return None;
+        }
+    }
+
+    Some(DecodedPage {
+        width,
+        height,
+        pixels,
+    })
+}
+
+/// Wrap decoded pixels in a GDK texture. Main thread only.
+fn texture_from_page(page: DecodedPage) -> Texture {
+    let DecodedPage {
+        width,
+        height,
+        pixels,
+    } = page;
+    let bytes = glib::Bytes::from_owned(pixels);
+    gtk::gdk::MemoryTexture::new(
+        width,
+        height,
+        gtk::gdk::MemoryFormat::B8g8r8a8Premultiplied,
+        &bytes,
+        width as usize * 4,
+    )
+    .upcast()
+}
+
+/// Cairo surface for the comparison overlay. Main thread only.
+fn surface_from_page(page: &DecodedPage) -> Option<cairo::ImageSurface> {
+    cairo::ImageSurface::create_for_data(
+        page.pixels.clone(),
+        cairo::Format::ARgb32,
+        page.width,
+        page.height,
+        page.width * 4,
+    )
+    .ok()
+}
+
+// ---------------------------------------------------------------------------
 // Preview mode
 // ---------------------------------------------------------------------------
 
@@ -1488,33 +1610,33 @@ impl Preview {
             btn.set_active(true);
         }
 
-        // Read file bytes on a background thread
+        // Decode on a background thread; only texture creation stays on the main thread.
         let path_buf = path.to_path_buf();
-        let (tx, rx) = async_channel::bounded::<Vec<u8>>(1);
+        let (tx, rx) = async_channel::bounded::<Option<DecodedPage>>(1);
         std::thread::spawn(move || {
-            if let Ok(bytes) = std::fs::read(&path_buf) {
-                let _ = tx.send_blocking(bytes);
-            }
+            let page = decode_page(&path_buf);
+            let _ = tx.send_blocking(page);
         });
 
-        // Main thread: create texture from bytes and update UI
+        // Main thread: wrap the decoded pixels and update the UI
         let weak = self.downgrade();
         glib::spawn_future_local(async move {
-            let Ok(bytes) = rx.recv().await else { return };
+            let Ok(Some(page)) = rx.recv().await else {
+                return;
+            };
             let Some(obj) = weak.upgrade() else { return };
             let priv_ = obj.imp();
 
-            let gbytes = glib::Bytes::from_owned(bytes);
-            if let Ok(texture) = Texture::from_bytes(&gbytes) {
-                if let Some(pic) = priv_.original_picture.borrow().as_ref() {
-                    pic.set_paintable(Some(&texture));
-                }
-                if let Some(label) = priv_.dimensions_label.borrow().as_ref() {
-                    label.set_label(&format!("{}×{}", texture.width(), texture.height()));
-                }
-                if let Some(stack) = priv_.stack.borrow().as_ref() {
-                    stack.set_visible_child_name("images");
-                }
+            let (width, height) = (page.width, page.height);
+            let texture = texture_from_page(page);
+            if let Some(pic) = priv_.original_picture.borrow().as_ref() {
+                pic.set_paintable(Some(&texture));
+            }
+            if let Some(label) = priv_.dimensions_label.borrow().as_ref() {
+                label.set_label(&format!("{}×{}", width, height));
+            }
+            if let Some(stack) = priv_.stack.borrow().as_ref() {
+                stack.set_visible_child_name("images");
             }
         });
     }
@@ -1529,53 +1651,30 @@ impl Preview {
 
         *priv_.translated_path.borrow_mut() = Some(path.to_path_buf());
 
-        // Read file bytes on a background thread
+        // Decode on a background thread; only texture creation stays on the main thread.
         let path_buf = path.to_path_buf();
-        let (tx, rx) = async_channel::bounded::<Vec<u8>>(1);
+        let (tx, rx) = async_channel::bounded::<Option<DecodedPage>>(1);
         std::thread::spawn(move || {
-            if let Ok(bytes) = std::fs::read(&path_buf) {
-                let _ = tx.send_blocking(bytes);
-            }
+            let _ = tx.send_blocking(decode_page(&path_buf));
         });
 
-        // Main thread: create texture, cache Cairo surface, update overlay
+        // Main thread: build texture + Cairo surface from the decoded buffer
         let weak = self.downgrade();
         glib::spawn_future_local(async move {
-            let Ok(bytes) = rx.recv().await else { return };
+            let Ok(Some(page)) = rx.recv().await else {
+                return;
+            };
             let Some(obj) = weak.upgrade() else { return };
             let priv_ = obj.imp();
 
-            let gbytes = glib::Bytes::from_owned(bytes);
-            if let Ok(texture) = Texture::from_bytes(&gbytes) {
-                // Cache texture reference
-                *priv_.translated_texture.borrow_mut() = Some(texture.clone());
+            if let Some(surface) = surface_from_page(&page) {
+                *priv_.translated_surface.borrow_mut() = Some(surface);
+            }
+            *priv_.translated_texture.borrow_mut() = Some(texture_from_page(page));
 
-                // Download texture pixels and cache as Cairo ImageSurface
-                let tex_w = texture.width();
-                let tex_h = texture.height();
-                let stride = tex_w * 4;
-                let mut data = vec![0u8; (tex_h * stride) as usize];
-                texture.download(&mut data, stride as usize);
-
-                // Convert R8G8B8A8_PREMULTIPLIED → Cairo ARGB32 (swap R↔B)
-                for pixel in data.chunks_exact_mut(4) {
-                    pixel.swap(0, 2);
-                }
-
-                if let Ok(surface) = cairo::ImageSurface::create_for_data(
-                    data,
-                    cairo::Format::ARgb32,
-                    tex_w,
-                    tex_h,
-                    stride as i32,
-                ) {
-                    *priv_.translated_surface.borrow_mut() = Some(surface);
-                }
-
-                // Redraw overlay
-                if let Some(overlay) = priv_.translated_overlay.borrow().as_ref() {
-                    overlay.queue_draw();
-                }
+            // Redraw overlay
+            if let Some(overlay) = priv_.translated_overlay.borrow().as_ref() {
+                overlay.queue_draw();
             }
 
             // If there's no original yet, show the translated image
@@ -1621,22 +1720,18 @@ impl Preview {
         // Spawn background threads for both images — they run in parallel
         let orig_rx = original.map(|path| {
             let path_buf = path.to_path_buf();
-            let (tx, rx) = async_channel::bounded::<Vec<u8>>(1);
+            let (tx, rx) = async_channel::bounded::<Option<DecodedPage>>(1);
             std::thread::spawn(move || {
-                if let Ok(bytes) = std::fs::read(&path_buf) {
-                    let _ = tx.send_blocking(bytes);
-                }
+                let _ = tx.send_blocking(decode_page(&path_buf));
             });
             rx
         });
 
         let trans_rx = translated.map(|path| {
             let path_buf = path.to_path_buf();
-            let (tx, rx) = async_channel::bounded::<Vec<u8>>(1);
+            let (tx, rx) = async_channel::bounded::<Option<DecodedPage>>(1);
             std::thread::spawn(move || {
-                if let Ok(bytes) = std::fs::read(&path_buf) {
-                    let _ = tx.send_blocking(bytes);
-                }
+                let _ = tx.send_blocking(decode_page(&path_buf));
             });
             rx
         });
@@ -1649,45 +1744,27 @@ impl Preview {
 
             // Load original texture
             if let Some(rx) = orig_rx {
-                if let Ok(bytes) = rx.recv().await {
-                    let gbytes = glib::Bytes::from_owned(bytes);
-                    if let Ok(texture) = Texture::from_bytes(&gbytes) {
-                        if let Some(pic) = priv_.original_picture.borrow().as_ref() {
-                            pic.set_paintable(Some(&texture));
-                        }
-                        if let Some(label) = priv_.dimensions_label.borrow().as_ref() {
-                            label.set_label(&format!("{}×{}", texture.width(), texture.height()));
-                        }
+                if let Ok(Some(page)) = rx.recv().await {
+                    let (width, height) = (page.width, page.height);
+                    let texture = texture_from_page(page);
+                    if let Some(pic) = priv_.original_picture.borrow().as_ref() {
+                        pic.set_paintable(Some(&texture));
+                    }
+                    if let Some(label) = priv_.dimensions_label.borrow().as_ref() {
+                        label.set_label(&format!("{}×{}", width, height));
                     }
                 }
             }
 
             // Load translated texture → cache Cairo surface
             if let Some(rx) = trans_rx {
-                if let Ok(bytes) = rx.recv().await {
-                    let gbytes = glib::Bytes::from_owned(bytes);
-                    if let Ok(texture) = Texture::from_bytes(&gbytes) {
-                        *priv_.translated_texture.borrow_mut() = Some(texture.clone());
-                        let tex_w = texture.width();
-                        let tex_h = texture.height();
-                        let stride = tex_w * 4;
-                        let mut data = vec![0u8; (tex_h * stride) as usize];
-                        texture.download(&mut data, stride as usize);
-                        for pixel in data.chunks_exact_mut(4) {
-                            pixel.swap(0, 2);
-                        }
-                        if let Ok(surface) = cairo::ImageSurface::create_for_data(
-                            data,
-                            cairo::Format::ARgb32,
-                            tex_w,
-                            tex_h,
-                            stride as i32,
-                        ) {
-                            *priv_.translated_surface.borrow_mut() = Some(surface);
-                        }
-                        if let Some(overlay) = priv_.translated_overlay.borrow().as_ref() {
-                            overlay.queue_draw();
-                        }
+                if let Ok(Some(page)) = rx.recv().await {
+                    if let Some(surface) = surface_from_page(&page) {
+                        *priv_.translated_surface.borrow_mut() = Some(surface);
+                    }
+                    *priv_.translated_texture.borrow_mut() = Some(texture_from_page(page));
+                    if let Some(overlay) = priv_.translated_overlay.borrow().as_ref() {
+                        overlay.queue_draw();
                     }
                 }
             }
