@@ -8,5 +8,6 @@ mod file_browser;
 mod main_window;
 mod preview;
 mod settings_panel;
+mod spring_splitter;
 
 pub use main_window::build_main_window;
