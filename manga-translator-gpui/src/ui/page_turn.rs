@@ -16,9 +16,9 @@
 use std::f64::consts::{PI, TAU};
 
 use gpui::{
-    Bounds, ContentMask, Context, Corners, Hsla, IntoElement, PathBuilder, Pixels, Point, Render,
-    Rgba, Size, WeakEntity, Window, canvas, fill, linear_color_stop, linear_gradient, point,
-    prelude::*, px, size,
+    App, Bounds, ContentMask, Context, Corners, Hsla, IntoElement, PathBuilder, Pixels, Point,
+    Render, Rgba, Size, TextAlign, TextRun, WeakEntity, Window, canvas, fill, font,
+    linear_color_stop, linear_gradient, point, prelude::*, px, size,
 };
 
 // ---------------------------------------------------------------------------
@@ -308,7 +308,13 @@ fn paint_stroke(window: &mut Window, builder: PathBuilder, stroke_color: Hsla) {
 // ---------------------------------------------------------------------------
 
 /// Paint the placeholder for `t` seconds since the animation started.
-pub(crate) fn paint(window: &mut Window, bounds: Bounds<Pixels>, dark: bool, t: f64) {
+pub(crate) fn paint(
+    window: &mut Window,
+    app: &mut App,
+    bounds: Bounds<Pixels>,
+    dark: bool,
+    t: f64,
+) {
     let w = bounds.size.width.as_f32() as f64;
     let h = bounds.size.height.as_f32() as f64;
     if w < 20.0 || h < 20.0 {
@@ -345,11 +351,11 @@ pub(crate) fn paint(window: &mut Window, bounds: Bounds<Pixels>, dark: bool, t: 
     let inset = 3.0;
     let ph = bh - inset * 2.0;
     let pw = (bw - sw) / 2.0 - inset;
-    let cx = bx + bw / 2.0;
+    let hinge = bx + bw / 2.0;
     let cy = by + bh / 2.0;
     let py = by + inset;
-    let left_px = cx - pw;
-    let right_px = cx;
+    let left_px = hinge - pw;
+    let right_px = hinge;
 
     let page_base = if dark {
         (0.15, 0.15, 0.15)
@@ -374,24 +380,25 @@ pub(crate) fn paint(window: &mut Window, bounds: Bounds<Pixels>, dark: bool, t: 
         None => (left_idx, right_idx),
     };
 
-    paint_page(window, left_px, py, pw, ph, under_left, dark);
-    paint_page(window, right_px, py, pw, ph, under_right, dark);
-    paint_spine_overlay(window, cx, py, ph, dark);
+    paint_page(window, app, left_px, py, pw, ph, under_left, dark);
+    paint_page(window, app, right_px, py, pw, ph, under_right, dark);
+    paint_spine_overlay(window, hinge, py, ph, dark);
 
     if let Some(turn) = turn {
         let theta = PI * turn.progress;
         let mirrored = theta > std::f64::consts::FRAC_PI_2;
 
-        paint_turn_shadow(window, theta, turn.lag, cx, py, ph, pw, dark);
+        paint_turn_shadow(window, theta, turn.lag, hinge, py, ph, pw, dark);
 
         let turning_idx = if mirrored { next_left } else { right_idx };
         paint_turning_page(
             window,
+            app,
             mirrored,
             turning_idx,
             theta,
             turn.lag,
-            cx,
+            hinge,
             cy,
             py,
             ph,
@@ -539,6 +546,7 @@ fn paint_spine_overlay(window: &mut Window, cx: f64, py: f64, ph: f64, dark: boo
 
 fn paint_page(
     window: &mut Window,
+    app: &mut App,
     page_x: f64,
     page_y: f64,
     page_w: f64,
@@ -600,6 +608,7 @@ fn paint_page(
             let boff = BUBBLE_OFFSETS[pidx % BUBBLE_OFFSETS.len()];
             paint_bubble(
                 window,
+                app,
                 rx + rw * boff.0,
                 ry + rh * boff.1,
                 rw.min(rh) * 0.28,
@@ -609,7 +618,13 @@ fn paint_page(
         }
 
         if pidx == 0 && layout_idx % 3 == 0 && rw > 60.0 && rh > 60.0 {
-            paint_hanko(window, rx + rw * 0.88, ry + rh * 0.88, rw.min(rh) * 0.14);
+            paint_hanko(
+                window,
+                app,
+                rx + rw * 0.88,
+                ry + rh * 0.88,
+                rw.min(rh) * 0.14,
+            );
         }
     }
 }
@@ -704,7 +719,15 @@ fn paint_screentone_masked(
     }
 }
 
-fn paint_bubble(window: &mut Window, cx: f64, cy: f64, r: f64, dark: bool, kind: &str) {
+fn paint_bubble(
+    window: &mut Window,
+    app: &mut App,
+    bx: f64,
+    cy: f64,
+    r: f64,
+    dark: bool,
+    kind: &str,
+) {
     if r < 6.0 {
         return;
     }
@@ -730,7 +753,7 @@ fn paint_bubble(window: &mut Window, cx: f64, cy: f64, r: f64, dark: bool, kind:
         window,
         {
             let mut b = PathBuilder::fill();
-            add_circle(&mut b, cx, cy, r, 28);
+            add_circle(&mut b, bx, cy, r, 28);
             b
         },
         ink,
@@ -739,7 +762,7 @@ fn paint_bubble(window: &mut Window, cx: f64, cy: f64, r: f64, dark: bool, kind:
         window,
         {
             let mut b = PathBuilder::stroke(px(1.5));
-            add_circle(&mut b, cx, cy, r, 28);
+            add_circle(&mut b, bx, cy, r, 28);
             b
         },
         border,
@@ -747,9 +770,9 @@ fn paint_bubble(window: &mut Window, cx: f64, cy: f64, r: f64, dark: bool, kind:
 
     // Tail.
     let tail = [
-        (cx - r * 0.2, cy + r * 0.78),
-        (cx - r * 0.65, cy + r * 1.45),
-        (cx + r * 0.15, cy + r * 0.88),
+        (bx - r * 0.2, cy + r * 0.78),
+        (bx - r * 0.65, cy + r * 1.45),
+        (bx + r * 0.15, cy + r * 0.88),
     ];
     paint_fill(
         window,
@@ -771,20 +794,9 @@ fn paint_bubble(window: &mut Window, cx: f64, cy: f64, r: f64, dark: bool, kind:
     );
 
     match kind {
-        "japanese" => {
-            // Two vertical strokes stand in for ああ; GPUI paints no text from
-            // inside a canvas without shaping a line first.
-            let w = (r * 0.16).max(1.2);
-            for off in [-0.18, 0.18] {
-                rect(
-                    window,
-                    cx + r * off - w / 2.0,
-                    cy - r * 0.30,
-                    w,
-                    r * 0.60,
-                    w / 2.0,
-                    text,
-                );
+        "japanese" | "exclaim" => {
+            if let Some((content, size)) = bubble_text(kind, r) {
+                paint_text(window, app, content, bx, cy, size, text, true);
             }
         }
         "lines" => {
@@ -796,10 +808,10 @@ fn paint_bubble(window: &mut Window, cx: f64, cy: f64, r: f64, dark: bool, kind:
                     let mut b = PathBuilder::stroke(px(1.2));
                     b.add_polygon(
                         &[
-                            p(cx - bw / 2.0, cy - bh / 2.0),
-                            p(cx + bw / 2.0, cy - bh / 2.0),
-                            p(cx + bw / 2.0, cy + bh / 2.0),
-                            p(cx - bw / 2.0, cy + bh / 2.0),
+                            p(bx - bw / 2.0, cy - bh / 2.0),
+                            p(bx + bw / 2.0, cy - bh / 2.0),
+                            p(bx + bw / 2.0, cy + bh / 2.0),
+                            p(bx - bw / 2.0, cy + bh / 2.0),
                         ],
                         true,
                     );
@@ -808,40 +820,67 @@ fn paint_bubble(window: &mut Window, cx: f64, cy: f64, r: f64, dark: bool, kind:
                 text,
             );
         }
-        "exclaim" => {
-            let w = (r * 0.16).max(1.4);
-            rect(
-                window,
-                cx - r * 0.22 - w / 2.0,
-                cy - r * 0.42,
-                w,
-                r * 0.55,
-                w / 2.0,
-                text,
-            );
-            rect(
-                window,
-                cx + r * 0.22 - w / 2.0,
-                cy - r * 0.42,
-                w,
-                r * 0.55,
-                w / 2.0,
-                text,
-            );
-            add_circle_path(window, cx - r * 0.22, cy + r * 0.26, w / 2.0, text);
-            add_circle_path(window, cx + r * 0.22, cy + r * 0.26, w / 2.0, text);
-        }
         _ => {
             // Three ruled lines, the classic placeholder text.
             let mut b = PathBuilder::stroke(px(1.4));
             for (i, yoff) in [-0.28_f64, 0.0, 0.24].iter().enumerate() {
                 let lw = r * if i < 2 { 0.72 } else { 0.38 };
-                b.move_to(p(cx - lw / 2.0, cy + r * yoff));
-                b.line_to(p(cx + lw / 2.0, cy + r * yoff));
+                b.move_to(p(bx - lw / 2.0, cy + r * yoff));
+                b.line_to(p(bx + lw / 2.0, cy + r * yoff));
             }
             paint_stroke(window, b, text);
         }
     }
+}
+
+/// Draw one centred line of text inside a canvas.
+///
+/// gpui has no direct "draw this string here" call in a paint pass: the text is
+/// shaped into a `ShapedLine` first, which is also what gives the run its font
+/// and colour.
+#[allow(clippy::too_many_arguments)]
+fn paint_text(
+    window: &mut Window,
+    app: &mut App,
+    text: &str,
+    center_x: f64,
+    center_y: f64,
+    size: f64,
+    color: Hsla,
+    bold: bool,
+) {
+    if size < 4.0 || text.is_empty() {
+        return;
+    }
+    let family = if bold {
+        font(".SystemUIFont").bold()
+    } else {
+        font(".SystemUIFont")
+    };
+    let run = TextRun {
+        len: text.len(),
+        font: family,
+        color,
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    };
+    let font_size = px(size as f32);
+    let shaped = {
+        let text_system = window.text_system();
+        text_system.shape_line(text.to_string().into(), font_size, &[run], None)
+    };
+    let width = shaped.width().as_f32() as f64;
+    let line_height = size * 1.15;
+    let origin = p(center_x - width / 2.0, center_y - line_height / 2.0);
+    let _ = shaped.paint(
+        origin,
+        px(line_height as f32),
+        TextAlign::Left,
+        None,
+        window,
+        app,
+    );
 }
 
 fn add_circle_path(window: &mut Window, cx: f64, cy: f64, r: f64, color: Hsla) {
@@ -856,26 +895,13 @@ fn add_circle_path(window: &mut Window, cx: f64, cy: f64, r: f64, color: Hsla) {
     );
 }
 
-fn paint_hanko(window: &mut Window, cx: f64, cy: f64, r: f64) {
+fn paint_hanko(window: &mut Window, app: &mut App, bx: f64, cy: f64, r: f64) {
     if r < 5.0 {
         return;
     }
     let r = r.min(20.0);
-    let red = color(0.80, 0.12, 0.10, 1.0);
-    add_circle_path(window, cx, cy, r, red);
-
-    // A seal mark instead of the 漫 glyph: a white ring with a dot, which still
-    // reads as a stamp at the 5–20 px this is drawn at.
-    paint_stroke(
-        window,
-        {
-            let mut b = PathBuilder::stroke(px((r * 0.16).max(0.9) as f32));
-            add_circle(&mut b, cx, cy, r * 0.58, 20);
-            b
-        },
-        gray(1.0, 1.0),
-    );
-    add_circle_path(window, cx, cy, (r * 0.16).max(1.0), gray(1.0, 1.0));
+    add_circle_path(window, bx, cy, r, color(0.80, 0.12, 0.10, 1.0));
+    paint_text(window, app, "漫", bx, cy, r * 1.1, gray(1.0, 1.0), true);
 }
 
 fn paint_grain(
@@ -980,6 +1006,7 @@ fn paint_turn_shadow(
 #[allow(clippy::too_many_arguments)]
 fn paint_turning_page(
     window: &mut Window,
+    app: &mut App,
     mirrored: bool,
     layout_idx: usize,
     theta: f64,
@@ -1093,6 +1120,14 @@ fn paint_turning_page(
             );
         }
 
+        // Tones follow the sheet as projected geometry. gpui has no texture
+        // transform, so the pattern is generated in page space and mapped
+        // through the same projection as the panels.
+        let tone = (layout_idx + pidx) % 4;
+        if tone > 0 && rw > 20.0 && rh > 20.0 {
+            paint_projected_screentone(window, rx, ry, rw, rh, tone, dark, mirrored, pw, &project);
+        }
+
         // Border: sample the outline so it follows the projection too.
         let mut border = PathBuilder::stroke(px(3.5));
         let samples = 20;
@@ -1122,7 +1157,18 @@ fn paint_turning_page(
             let by = ry + rh * boff.1;
             let r = rw.min(rh) * 0.28;
             if r >= 6.0 {
-                paint_projected_bubble(window, bx, by, r.min(36.0), mirrored, pw, dark, &project);
+                paint_projected_bubble(
+                    window,
+                    app,
+                    bx,
+                    by,
+                    r.min(36.0),
+                    mirrored,
+                    pw,
+                    dark,
+                    BUBBLE_TYPES[(layout_idx + pidx) % BUBBLE_TYPES.len()],
+                    &project,
+                );
             }
         }
         if pidx == 0 && layout_idx % 3 == 0 && rw > 60.0 && rh > 60.0 {
@@ -1218,12 +1264,14 @@ fn paint_turning_page(
 #[allow(clippy::too_many_arguments)]
 fn paint_projected_bubble(
     window: &mut Window,
+    app: &mut App,
     bx: f64,
     by: f64,
     r: f64,
     mirrored: bool,
     pw: f64,
     dark: bool,
+    kind: &str,
     project: &impl Fn(f64, f64) -> (f64, f64),
 ) {
     let ink = if dark {
@@ -1254,6 +1302,44 @@ fn paint_projected_bubble(
         },
         border,
     );
+
+    // Text on the moving sheet: the sheet is squeezed horizontally, and gpui
+    // cannot scale a shaped line, so the glyphs are only drawn while the face
+    // is wide enough for them to read. The size follows the perspective.
+    if let Some((content, size)) = bubble_text(kind, r) {
+        let d_center = if mirrored { pw - bx } else { bx };
+        let (tx, ty) = project(d_center, by);
+        let (_, ty_below) = project(d_center, by + 1.0);
+        let (tx_right, _) = project(d_center + 1.0, by);
+        let scale_y = (ty_below - ty).abs();
+        let width_factor = (tx_right - tx).abs();
+        if width_factor > 0.45 {
+            let text_color = if dark {
+                gray(0.85, 1.0)
+            } else {
+                gray(0.10, 1.0)
+            };
+            paint_text(
+                window,
+                app,
+                content,
+                tx,
+                ty,
+                size * scale_y,
+                text_color,
+                true,
+            );
+        }
+    }
+}
+
+/// The glyphs a bubble type shows, with the font size GTK uses.
+fn bubble_text(kind: &str, r: f64) -> Option<(&'static str, f64)> {
+    match kind {
+        "japanese" => Some(("ああ…", (r * 0.65).max(8.0))),
+        "exclaim" => Some(("!!", (r * 0.8).max(9.0))),
+        _ => None,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1283,6 +1369,190 @@ fn paint_projected_circle(
         },
         fill_color,
     );
+}
+
+/// Tones on the turning sheet: the pattern is built in page space and every
+/// point runs through `project`, so it bends with the paper.
+#[allow(clippy::too_many_arguments)]
+fn paint_projected_screentone(
+    window: &mut Window,
+    rx: f64,
+    ry: f64,
+    rw: f64,
+    rh: f64,
+    pattern: usize,
+    dark: bool,
+    mirrored: bool,
+    pw: f64,
+    project: &impl Fn(f64, f64) -> (f64, f64),
+) {
+    let tone = if dark {
+        color(0.55, 0.55, 0.55, 0.45)
+    } else {
+        color(0.25, 0.25, 0.25, 0.35)
+    };
+    let map_x = |x: f64| if mirrored { pw - x } else { x };
+
+    match pattern {
+        1 => {
+            // Coarser than the resting spread: every dot costs three
+            // projections, and the sheet is in motion anyway.
+            let spacing = 11.0;
+            let dot_r = 1.5;
+            let mut b = PathBuilder::fill();
+            let mut y = ry + spacing / 2.0;
+            let mut row = 0;
+            while y < ry + rh - dot_r {
+                let offset = if row % 2 != 0 { spacing / 2.0 } else { 0.0 };
+                let mut x = rx + spacing / 2.0 + offset;
+                while x < rx + rw - dot_r {
+                    let d = map_x(x);
+                    let (sx, sy) = project(d, y);
+                    let (sx_next, _) = project(d + 0.5, y);
+                    let (_, sy_next) = project(d, y + 0.5);
+                    let rx_screen = (dot_r * (sx_next - sx).abs() * 2.0).max(0.35);
+                    let ry_screen = (dot_r * (sy_next - sy).abs() * 2.0).max(0.35);
+                    add_ellipse(&mut b, sx, sy, rx_screen, ry_screen, 6);
+                    x += spacing;
+                }
+                y += spacing;
+                row += 1;
+            }
+            paint_fill(window, b, tone);
+        }
+        2 | 3 => {
+            let spacing = if pattern == 2 { 6.0 } else { 9.0 };
+            let mut b = PathBuilder::stroke(px(if pattern == 2 { 0.7 } else { 0.5 }));
+            let total = (rw + rh) as i32;
+            let mut i = -total;
+            while i < total {
+                let x0 = rx + i as f64;
+                if let Some((t0, t1)) = clip_segment(rx, ry, rw, rh, x0, ry, x0 + rh, ry + rh) {
+                    add_projected_line(
+                        &mut b,
+                        x0,
+                        ry,
+                        x0 + rh,
+                        ry + rh,
+                        t0,
+                        t1,
+                        mirrored,
+                        pw,
+                        project,
+                    );
+                }
+                i += spacing as i32;
+            }
+            if pattern == 3 {
+                let mut i = -total;
+                while i < total {
+                    let x0 = rx + i as f64 + rw;
+                    if let Some((t0, t1)) = clip_segment(rx, ry, rw, rh, x0, ry, x0 - rh, ry + rh) {
+                        add_projected_line(
+                            &mut b,
+                            x0,
+                            ry,
+                            x0 - rh,
+                            ry + rh,
+                            t0,
+                            t1,
+                            mirrored,
+                            pw,
+                            project,
+                        );
+                    }
+                    i += spacing as i32;
+                }
+            }
+            paint_stroke(window, b, tone);
+        }
+        _ => {}
+    }
+}
+
+/// Clip a page-space segment to the panel it belongs to, so a hatch line only
+/// draws the part that Cairo's `clip()` would have kept.
+fn clip_segment(
+    rx: f64,
+    ry: f64,
+    rw: f64,
+    rh: f64,
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+) -> Option<(f64, f64)> {
+    let dx = x1 - x0;
+    let dy = y1 - y0;
+    let mut t0 = 0.0_f64;
+    let mut t1 = 1.0_f64;
+    for (p, q) in [
+        (-dx, x0 - rx),
+        (dx, rx + rw - x0),
+        (-dy, y0 - ry),
+        (dy, ry + rh - y0),
+    ] {
+        if p.abs() < 1e-9 {
+            if q < 0.0 {
+                return None;
+            }
+        } else {
+            let r = q / p;
+            if p < 0.0 {
+                if r > t1 {
+                    return None;
+                }
+                if r > t0 {
+                    t0 = r;
+                }
+            } else {
+                if r < t0 {
+                    return None;
+                }
+                if r < t1 {
+                    t1 = r;
+                }
+            }
+        }
+    }
+    Some((t0, t1))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_projected_line(
+    builder: &mut PathBuilder,
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+    t0: f64,
+    t1: f64,
+    mirrored: bool,
+    pw: f64,
+    project: &impl Fn(f64, f64) -> (f64, f64),
+) {
+    const SAMPLES: usize = 10;
+    for k in 0..=SAMPLES {
+        let t = t0 + (t1 - t0) * k as f64 / SAMPLES as f64;
+        let x = x0 + (x1 - x0) * t;
+        let y = y0 + (y1 - y0) * t;
+        let d = if mirrored { pw - x } else { x };
+        let (sx, sy) = project(d, y);
+        if k == 0 {
+            builder.move_to(p(sx, sy));
+        } else {
+            builder.line_to(p(sx, sy));
+        }
+    }
+}
+
+fn add_ellipse(builder: &mut PathBuilder, cx: f64, cy: f64, rx: f64, ry: f64, segments: usize) {
+    let mut points = Vec::with_capacity(segments);
+    for i in 0..segments {
+        let a = i as f64 / segments as f64 * TAU;
+        points.push(p(cx + rx * a.cos(), cy + ry * a.sin()));
+    }
+    builder.add_polygon(&points, true);
 }
 
 // ---------------------------------------------------------------------------
@@ -1346,7 +1616,7 @@ impl Render for PageTurnView {
 
         canvas(
             move |_bounds, _window, _cx| (),
-            move |bounds, _, window, _cx| paint(window, bounds, dark, elapsed),
+            move |bounds, _, window, cx| paint(window, cx, bounds, dark, elapsed),
         )
         .absolute()
         .top_0()
