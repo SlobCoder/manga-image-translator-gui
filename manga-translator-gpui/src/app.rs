@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_channel::Sender;
 use gpui::component::select::SelectState;
-use gpui::{Context, Entity, FocusHandle, Image, Window, prelude::*};
+use gpui::{Context, Entity, ExternalPaths, FocusHandle, Image, Window, prelude::*};
 
 use manga_translator_core::config::ConfigManager;
 use manga_translator_core::i18n::t;
@@ -88,6 +88,8 @@ pub struct MangaApp {
     /// translation job runs on the union of both.
     pub(crate) selected_paths: HashSet<PathBuf>,
     pub(crate) checked_folders: HashMap<PathBuf, Vec<PathBuf>>,
+    /// Files to check once the folder they were dropped from has loaded.
+    pub(crate) pending_selection: Vec<PathBuf>,
     pub(crate) search: String,
     pub(crate) search_input: Option<Entity<TextInput>>,
 
@@ -191,6 +193,7 @@ impl MangaApp {
             selected: None,
             selected_paths: HashSet::new(),
             checked_folders: HashMap::new(),
+            pending_selection: Vec::new(),
             search: String::new(),
             search_input: None,
             preview: None,
@@ -243,6 +246,21 @@ impl MangaApp {
                 self.selected = None;
                 self.selected_paths.clear();
                 self.checked_folders.clear();
+
+                // A drop of loose images checks them once their folder is in.
+                let pending = std::mem::take(&mut self.pending_selection);
+                let matched: Vec<usize> = self
+                    .images
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, image)| pending.iter().any(|path| *path == image.path))
+                    .map(|(index, _)| index)
+                    .collect();
+                for index in &matched {
+                    if let Some(image) = self.images.get(*index) {
+                        self.selected_paths.insert(image.path.clone());
+                    }
+                }
                 self.preview = None;
                 self.preview_path = None;
                 self.translated_preview = None;
@@ -251,8 +269,10 @@ impl MangaApp {
                 self.config.settings.last_directory = self.cwd.to_string_lossy().into_owned();
                 self.config.save_settings();
 
-                if !self.images.is_empty() {
-                    self.select_image(0, cx);
+                match matched.first() {
+                    Some(index) => self.select_image(*index, cx),
+                    None if !self.images.is_empty() => self.select_image(0, cx),
+                    None => {}
                 }
                 cx.notify();
             }
@@ -354,6 +374,22 @@ impl MangaApp {
     pub(crate) fn go_home(&mut self, cx: &mut Context<Self>) {
         let home = self.config.manga_home_dir();
         self.load_folder(home, cx);
+    }
+
+    /// Open what was dropped: a folder, or the folder holding the dropped
+    /// images, with those images checked.
+    pub(crate) fn handle_drop(&mut self, paths: &ExternalPaths, cx: &mut Context<Self>) {
+        match drop_target(paths.paths()) {
+            DropTarget::Folder(folder) => {
+                self.pending_selection.clear();
+                self.load_folder(folder, cx);
+            }
+            DropTarget::Images { folder, images } => {
+                self.pending_selection = images;
+                self.load_folder(folder, cx);
+            }
+            DropTarget::Ignore => {}
+        }
     }
 
     /// Put the keyboard focus into the image filter.
@@ -920,6 +956,45 @@ fn options_get(list: &'static [&'static str], index: u32) -> String {
 }
 
 /// Formats a byte count for the file list.
+/// What a drop should do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DropTarget {
+    /// Open this folder.
+    Folder(PathBuf),
+    /// Open the folder and check these images in it.
+    Images {
+        folder: PathBuf,
+        images: Vec<PathBuf>,
+    },
+    /// Nothing usable was dropped.
+    Ignore,
+}
+
+/// A dropped folder wins; otherwise loose images select their own folder.
+pub(crate) fn drop_target(paths: &[PathBuf]) -> DropTarget {
+    if let Some(folder) = paths.iter().find(|path| path.is_dir()) {
+        return DropTarget::Folder(folder.clone());
+    }
+
+    let images: Vec<PathBuf> = paths
+        .iter()
+        .filter(|path| {
+            path.extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(crate::workers::is_image_extension)
+        })
+        .cloned()
+        .collect();
+
+    match images.first().and_then(|path| path.parent()) {
+        Some(folder) => DropTarget::Images {
+            folder: folder.to_path_buf(),
+            images,
+        },
+        None => DropTarget::Ignore,
+    }
+}
+
 /// Recursively collect the images a folder holds, using the same extension
 /// list as the folder scanner in `workers`.
 fn scan_images(dir: &Path) -> Vec<PathBuf> {
@@ -1050,8 +1125,74 @@ impl Render for MangaApp {
             .on_action(cx.listener(|this, _: &ShowAbout, window, cx| {
                 crate::ui::dialogs::open_about(this.theme, window, cx)
             }))
+            .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
+                this.handle_drop(paths, cx)
+            }))
             .child(self.render_header(cx))
             .child(body)
             .child(self.render_status_bar(cx))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "manga-translator-gpui-{name}-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    #[test]
+    fn dropping_a_folder_opens_it() {
+        let dir = temp_dir("drop-folder");
+        assert_eq!(drop_target(&[dir.clone()]), DropTarget::Folder(dir.clone()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropping_images_opens_their_folder_and_checks_them() {
+        let dir = temp_dir("drop-images");
+        let first = dir.join("001.png");
+        let second = dir.join("002.JPG");
+        std::fs::write(&first, b"x").expect("write");
+        std::fs::write(&second, b"x").expect("write");
+
+        match drop_target(&[first.clone(), second.clone()]) {
+            DropTarget::Images { folder, images } => {
+                assert_eq!(folder, dir);
+                assert_eq!(images, vec![first, second]);
+            }
+            other => panic!("expected images, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_folder_wins_over_files_in_the_same_drop() {
+        let dir = temp_dir("drop-mixed");
+        let image = dir.join("001.png");
+        std::fs::write(&image, b"x").expect("write");
+
+        assert_eq!(
+            drop_target(&[image, dir.clone()]),
+            DropTarget::Folder(dir.clone())
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn dropping_other_files_is_ignored() {
+        let dir = temp_dir("drop-other");
+        let text = dir.join("notes.txt");
+        std::fs::write(&text, b"x").expect("write");
+
+        assert_eq!(drop_target(&[text]), DropTarget::Ignore);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
