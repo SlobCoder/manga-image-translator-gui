@@ -252,168 +252,156 @@ impl MangaApp {
         let theme = self.theme;
         let settings = &self.config.settings;
 
-        let mut content = gpui::div()
-            .flex()
-            .flex_col()
-            .p_3()
-            .gap_1()
-            .text_size(px(FONT_BASE));
-
-        // ---- Translation -------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("Übersetzung")))
-            .child(self.select_row(SelectKind::TranslationMode, cx))
-            .child(self.select_row(SelectKind::Translator, cx))
-            .child(self.select_row(SelectKind::TargetLanguage, cx))
-            .child(self.toggle_row(
+        // ---- Übersetzung -------------------------------------------------
+        let translation = vec![
+            self.select_row(SelectKind::TranslationMode),
+            self.select_row(SelectKind::Translator),
+            self.select_row(SelectKind::TargetLanguage),
+            self.toggle_row(
                 t("RTL-Textrichtung"),
                 settings.direction_rtl,
                 "toggle-rtl",
                 |s| s.direction_rtl = !s.direction_rtl,
                 cx,
-            ))
-            .child(self.select_row(SelectKind::Device, cx));
+            ),
+            self.select_row(SelectKind::Device),
+        ];
 
-        // ---- Detection ---------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("Umgebung")))
-            .child(self.free_text_row("manga_translator_path", cx))
-            .child(self.free_text_row("virtual_env_path", cx))
-            .child(widgets::section_header(theme, t("Erkennung")))
-            .child(self.select_row(SelectKind::Detector, cx))
-            .child(self.select_row(SelectKind::Ocr, cx))
-            .child(self.toggle_row(
+        // ---- Umgebung ----------------------------------------------------
+        let environment = vec![
+            self.free_text_row("manga_translator_path", cx),
+            self.free_text_row("virtual_env_path", cx),
+        ];
+
+        // ---- Erkennung ---------------------------------------------------
+        let detection = vec![
+            self.select_row(SelectKind::Detector),
+            self.select_row(SelectKind::Ocr),
+            self.toggle_row(
                 t("BBox Zusammenführung (mocr)"),
                 settings.use_mocr_merge,
                 "toggle-mocr",
                 |s| s.use_mocr_merge = !s.use_mocr_merge,
                 cx,
-            ))
-            .child(self.stepper_row(
+            ),
+            self.stepper_row(
                 t("Erkennungsgröße"),
                 settings.detection_size as i64,
                 "step-detection",
                 |s, delta| s.detection_size = step_u32(s.detection_size, delta, 256, 4096),
                 cx,
-            ));
+            ),
+        ];
 
         // ---- Inpainting --------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("Inpainting")))
-            .child(self.select_row(SelectKind::Inpainter, cx))
-            .child(self.select_row(SelectKind::InpaintingPrecision, cx))
-            .child(self.stepper_row(
+        let inpainting = vec![
+            self.select_row(SelectKind::Inpainter),
+            self.select_row(SelectKind::InpaintingPrecision),
+            self.stepper_row(
                 t("Inpainting-Größe"),
                 settings.inpainting_size as i64,
                 "step-inpainting",
                 |s, delta| s.inpainting_size = step_u32(s.inpainting_size, delta, 256, 4096),
                 cx,
-            ))
-            .child(self.stepper_row(
+            ),
+            self.stepper_row(
                 t("Masken-Dilatation"),
                 settings.mask_dilation_offset as i64,
                 "step-mask",
                 |s, delta| s.mask_dilation_offset = step_i32(s.mask_dilation_offset, delta, 0, 100),
                 cx,
-            ))
-            .child(self.stepper_row(
+            ),
+            self.stepper_row(
                 t("Kernel-Größe"),
                 settings.kernel_size as i64,
                 "step-kernel",
                 |s, delta| s.kernel_size = step_i32(s.kernel_size, delta, 1, 15),
                 cx,
-            ));
+            ),
+        ];
 
         // ---- VLM ---------------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("VLM")))
-            .child(self.select_row(SelectKind::VlmType, cx));
-
+        let mut vlm = vec![self.select_row(SelectKind::VlmType)];
         match settings.vlm_type.as_str() {
             "openrouter" => {
-                content = content
-                    .child(self.select_row(SelectKind::OpenRouterModel, cx))
-                    .child(self.secret_row("openrouter_api_key", cx));
+                vlm.push(self.select_row(SelectKind::OpenRouterModel));
+                vlm.push(self.secret_row("openrouter_api_key", cx));
             }
-            "local" => {
-                content = content.child(self.free_text_row("local_model_path", cx));
-            }
+            "local" => vlm.push(self.free_text_row("local_model_path", cx)),
             _ => {
-                content = content
-                    .child(self.select_row(SelectKind::GeminiModel, cx))
-                    .child(self.secret_row("gemini_api_key", cx));
+                vlm.push(self.select_row(SelectKind::GeminiModel));
+                vlm.push(self.secret_row("gemini_api_key", cx));
             }
         }
 
         // ---- Rendering ---------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("Rendering")))
-            .child(self.select_row(SelectKind::Renderer, cx))
-            .child(self.select_row(SelectKind::Alignment, cx))
-            .child(self.select_row(SelectKind::Direction, cx))
-            .child(self.stepper_row(
+        let rendering = vec![
+            self.select_row(SelectKind::Renderer),
+            self.select_row(SelectKind::Alignment),
+            self.select_row(SelectKind::Direction),
+            self.stepper_row(
                 t("Schriftgröße (0 = automatisch)"),
                 settings.font_size as i64,
                 "step-font-size",
                 |s, delta| s.font_size = step_i32(s.font_size, delta, 0, 200),
                 cx,
-            ))
-            .child(self.stepper_row(
+            ),
+            self.stepper_row(
                 t("Schriftgröße-Offset"),
                 settings.font_size_offset as i64,
                 "step-font-offset",
                 |s, delta| s.font_size_offset = step_i32(s.font_size_offset, delta, -50, 50),
                 cx,
-            ))
-            .child(self.stepper_row(
+            ),
+            self.stepper_row(
                 t("Minimale Schriftgröße"),
                 settings.font_size_minimum as i64,
                 "step-font-min",
                 |s, delta| s.font_size_minimum = step_i32(s.font_size_minimum, delta, -1, 200),
                 cx,
-            ))
-            .child(self.stepper_row(
+            ),
+            self.stepper_row(
                 t("Zeilenabstand (0 = automatisch)"),
                 settings.line_spacing as i64,
                 "step-line-spacing",
                 |s, delta| s.line_spacing = step_i32(s.line_spacing, delta, 0, 50),
                 cx,
-            ))
-            .child(self.free_text_row("font_color", cx))
-            .child(self.toggle_row(
+            ),
+            self.free_text_row("font_color", cx),
+            self.toggle_row(
                 t("Font-Rahmen deaktivieren"),
                 settings.disable_font_border,
                 "toggle-border",
                 |s| s.disable_font_border = !s.disable_font_border,
                 cx,
-            ))
-            .child(self.toggle_row(
+            ),
+            self.toggle_row(
                 t("GROSSBUCHSTABEN"),
                 settings.uppercase,
                 "toggle-upper",
                 |s| s.uppercase = !s.uppercase,
                 cx,
-            ))
-            .child(self.toggle_row(
+            ),
+            self.toggle_row(
                 t("kleinbuchstaben"),
                 settings.lowercase,
                 "toggle-lower",
                 |s| s.lowercase = !s.lowercase,
                 cx,
-            ))
-            .child(self.toggle_row(
+            ),
+            self.toggle_row(
                 t("Silbentrennung aus"),
                 settings.no_hyphenation,
                 "toggle-hyphen",
                 |s| s.no_hyphenation = !s.no_hyphenation,
                 cx,
-            ));
+            ),
+        ];
 
         // ---- Upscaling ---------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("Upscaling")))
-            .child(self.select_row(SelectKind::Upscaler, cx))
-            .child(self.stepper_row(
+        let upscaling = vec![
+            self.select_row(SelectKind::Upscaler),
+            self.stepper_row(
                 t("Skalierungsfaktor"),
                 settings.upscale_ratio as i64,
                 "step-upscale",
@@ -430,27 +418,45 @@ impl MangaApp {
                     s.upscale_ratio = ratios[next as usize];
                 },
                 cx,
-            ));
+            ),
+        ];
 
-        // ---- Output ------------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("Ausgabe")))
-            .child(self.free_text_row("output_directory", cx))
-            .child(self.toggle_row(
+        // ---- Ausgabe -----------------------------------------------------
+        let output = vec![
+            self.free_text_row("output_directory", cx),
+            self.toggle_row(
                 t("Im Originalordner speichern"),
                 settings.use_original_folder,
                 "toggle-original-folder",
                 |s| s.use_original_folder = !s.use_original_folder,
                 cx,
-            ));
+            ),
+        ];
 
-        // ---- Appearance --------------------------------------------------
-        content = content
-            .child(widgets::section_header(theme, t("Darstellung")))
-            .child(self.select_row(SelectKind::ColorScheme, cx))
-            .child(self.select_row(SelectKind::UiLanguage, cx))
-            .child(self.select_row(SelectKind::Sort, cx))
-            .child(self.free_text_row("manga_home_directory", cx));
+        // ---- Darstellung -------------------------------------------------
+        let appearance = vec![
+            self.select_row(SelectKind::ColorScheme),
+            self.select_row(SelectKind::UiLanguage),
+            self.select_row(SelectKind::Sort),
+            self.free_text_row("manga_home_directory", cx),
+        ];
+
+        let content = gpui::div()
+            .flex()
+            .flex_col()
+            .px_3()
+            .py_6()
+            .gap_6()
+            .text_size(px(FONT_BASE))
+            .child(preferences_group(theme, t("Übersetzung"), translation))
+            .child(preferences_group(theme, t("Umgebung"), environment))
+            .child(preferences_group(theme, t("Erkennung"), detection))
+            .child(preferences_group(theme, t("Inpainting"), inpainting))
+            .child(preferences_group(theme, t("VLM"), vlm))
+            .child(preferences_group(theme, t("Rendering"), rendering))
+            .child(preferences_group(theme, t("Upscaling"), upscaling))
+            .child(preferences_group(theme, t("Ausgabe"), output))
+            .child(preferences_group(theme, t("Darstellung"), appearance));
 
         gpui::div()
             .id("settings-panel")
@@ -458,7 +464,7 @@ impl MangaApp {
             .h_full()
             .flex()
             .flex_col()
-            .bg(theme.panel)
+            .bg(theme.bg)
             .border_l_1()
             .border_color(theme.border)
             .child(
@@ -475,20 +481,17 @@ impl MangaApp {
     // Rows
     // -----------------------------------------------------------------------
 
-    fn select_row(&self, kind: SelectKind, _cx: &mut Context<Self>) -> Div {
+    fn select_row(&self, kind: SelectKind) -> Div {
         let theme = self.theme;
-        let mut column = gpui::div()
-            .flex()
-            .flex_col()
-            .gap_1()
-            .py_1()
-            .child(widgets::label_block(theme, kind.label(), None));
+        let mut row = action_row(theme, kind.label());
 
         if let Some(state) = self.selects.get(&kind) {
-            column = column.child(Select::new(state).w_full());
+            // The Select root is `size_full`, so the width has to come from a
+            // wrapper; setting it on the element itself is ignored.
+            row = row.child(gpui::div().w(px(140.)).child(Select::new(state)));
         }
 
-        column
+        row
     }
 
     fn toggle_row(
@@ -500,21 +503,13 @@ impl MangaApp {
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = self.theme;
-        gpui::div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .gap_3()
-            .py_1()
-            .child(widgets::label_block(theme, label, None))
-            .child(widgets::toggle(theme, id, value).on_click(cx.listener(
-                move |this, _: &ClickEvent, _window, cx| {
-                    apply(&mut this.config.settings);
-                    this.config.save_settings();
-                    cx.notify();
-                },
-            )))
+        action_row(theme, label).child(widgets::toggle(theme, id, value).on_click(cx.listener(
+            move |this, _: &ClickEvent, _window, cx| {
+                apply(&mut this.config.settings);
+                this.config.save_settings();
+                cx.notify();
+            },
+        )))
     }
 
     fn stepper_row(
@@ -593,15 +588,7 @@ impl MangaApp {
                     .child("+"),
             );
 
-        gpui::div()
-            .flex()
-            .flex_row()
-            .items_center()
-            .justify_between()
-            .gap_3()
-            .py_1()
-            .child(widgets::label_block(theme, label, None))
-            .child(stepper)
+        action_row(theme, label).child(stepper)
     }
 
     fn free_text_row(&self, key: &'static str, cx: &mut Context<Self>) -> Div {
@@ -609,15 +596,27 @@ impl MangaApp {
         let label = self.input_label(key);
         let input: Option<Entity<TextInput>> = self.inputs.get(key).cloned();
 
-        let mut row = gpui::div().flex().flex_col().gap_1().py_1().child(
-            gpui::div()
-                .text_size(px(FONT_SM))
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(theme.text_muted)
-                .child(label),
-        );
+        let mut column = gpui::div()
+            .flex()
+            .flex_col()
+            .justify_center()
+            .gap_1()
+            .min_h(px(adw::ACTION_ROW_H))
+            .px_3()
+            .py_1();
 
         if let Some(input) = input {
+            // `AdwEntryRow`: the title doubles as the placeholder, so it only
+            // appears above the field once something has been entered.
+            if !input.read(cx).value(cx).is_empty() {
+                column = column.child(
+                    gpui::div()
+                        .text_size(px(FONT_SM))
+                        .text_color(theme.text_muted)
+                        .child(label),
+                );
+            }
+
             let mut line = gpui::div().flex().flex_row().items_center().gap_1();
             line = line.child(gpui::div().flex_1().child(input));
 
@@ -631,10 +630,10 @@ impl MangaApp {
                 );
             }
 
-            row = row.child(line);
+            column = column.child(line);
         }
 
-        row
+        column
     }
 
     fn secret_row(&self, key: &'static str, cx: &mut Context<Self>) -> Div {
@@ -743,6 +742,56 @@ impl MangaApp {
 
         cx.notify();
     }
+}
+
+// ---------------------------------------------------------------------------
+// Adwaita preferences layout
+// ---------------------------------------------------------------------------
+
+/// One `AdwActionRow`: title on the left, control on the right, 50 px tall.
+fn action_row(theme: Theme, label: impl Into<gpui::SharedString>) -> Div {
+    gpui::div()
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_3()
+        .min_h(px(adw::ACTION_ROW_H))
+        .px_3()
+        .child(widgets::label_block(theme, label, None))
+}
+
+/// One `AdwPreferencesGroup`: a bold title above a card that holds the rows,
+/// divided by hairlines like the boxed list in GTK.
+fn preferences_group(theme: Theme, title: String, rows: Vec<Div>) -> Div {
+    let mut card = gpui::div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .rounded(px(adw::CARD_RADIUS))
+        .bg(theme.card)
+        .overflow_hidden();
+
+    for (index, row) in rows.into_iter().enumerate() {
+        if index > 0 {
+            card = card.child(gpui::div().h(px(1.)).w_full().bg(theme.border));
+        }
+        card = card.child(row);
+    }
+
+    gpui::div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .gap(px(6.))
+        .child(
+            gpui::div()
+                .px_3()
+                .text_size(px(FONT_BASE))
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(theme.text)
+                .child(title),
+        )
+        .child(card)
 }
 
 // ---------------------------------------------------------------------------

@@ -31,6 +31,8 @@ pub struct Theme {
     pub danger: Rgba,
     pub warning: Rgba,
     pub selection: Rgba,
+    /// Surface of a preferences card, one step above the page background.
+    pub card: Rgba,
 }
 
 impl Theme {
@@ -51,6 +53,7 @@ impl Theme {
             danger: rgb(0xe25c5c),
             warning: rgb(0xd9a441),
             selection: rgb(0x2c4a7c),
+            card: rgb(0x202327),
         }
     }
 
@@ -71,6 +74,7 @@ impl Theme {
             danger: rgb(0xc0392b),
             warning: rgb(0xa9781c),
             selection: rgb(0xcfe0fb),
+            card: rgb(0xffffff),
         }
     }
 
@@ -293,6 +297,8 @@ pub mod adw {
     /// `headerbar { min-height: 47px }`.
     pub const HEADER_H: f32 = 47.0;
 
+    /// `row { min-height: 50px }` — action rows with a title and subtitle.
+    pub const ACTION_ROW_H: f32 = 50.0;
     /// Single-line preference rows and group headers.
     pub const COMPACT_ROW_H: f32 = 34.0;
 }
@@ -302,14 +308,14 @@ pub mod sizes {
     pub const HEADER_H: f32 = super::adw::HEADER_H;
     pub const STATUS_H: f32 = 26.0;
     pub const SIDEBAR_W: f32 = 268.0;
-    pub const SETTINGS_W: f32 = 330.0;
+    pub const SETTINGS_W: f32 = 360.0;
 
     // Draggable panel dividers
     pub const SPLITTER_W: f32 = 6.0;
     pub const SIDEBAR_MIN: f32 = 180.0;
     pub const SIDEBAR_MAX: f32 = 460.0;
-    pub const SETTINGS_MIN: f32 = 240.0;
-    pub const SETTINGS_MAX: f32 = 460.0;
+    pub const SETTINGS_MIN: f32 = 320.0;
+    pub const SETTINGS_MAX: f32 = 520.0;
     /// Space the preview always keeps, so the panels cannot squeeze it away.
     pub const MIN_PREVIEW: f32 = 260.0;
 
