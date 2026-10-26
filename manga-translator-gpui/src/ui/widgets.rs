@@ -15,26 +15,28 @@ use gpui::component::{
 };
 use gpui::{Div, ElementId, FontWeight, Hsla, Rgba, SharedString, Stateful, div, prelude::*, px};
 
-use crate::theme::{Theme, adw, sizes::*};
+use crate::theme::{Theme, adw, sizes::*, typo};
 
-/// Uppercase section label with a thin rule underneath.
+/// Group heading in Adwaita's `title-4` step. Used above a card in the
+/// preferences panel and as the section label in panels and dialogs.
+pub fn group_heading(theme: Theme, title: impl Into<SharedString>) -> Div {
+    div()
+        .text_size(px(typo::TITLE_4))
+        .font_weight(FontWeight::BOLD)
+        .text_color(theme.text)
+        .child(title.into())
+}
+
+/// Section label above a group of rows.
 pub fn section_header(theme: Theme, title: impl Into<SharedString>) -> Div {
     div()
         .flex()
         .flex_col()
         .justify_center()
         .min_h(px(adw::COMPACT_ROW_H))
-        .gap_1()
         .mt_3()
         .mb_1()
-        .child(
-            div()
-                .text_size(px(FONT_SM))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text_faint)
-                .child(title.into().to_uppercase()),
-        )
-        .child(div().h(px(1.)).w_full().bg(theme.border))
+        .child(group_heading(theme, title))
 }
 
 /// Label + optional description, used on the left of a setting row.

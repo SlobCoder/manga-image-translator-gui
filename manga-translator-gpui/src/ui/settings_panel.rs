@@ -6,7 +6,7 @@
 
 use gpui::component::select::{Select, SelectEvent};
 use gpui::component::{IndexPath, select::SelectState};
-use gpui::{ClickEvent, Context, Div, Entity, FontWeight, Window, prelude::*, px};
+use gpui::{ClickEvent, Context, Div, Entity, Window, prelude::*, px};
 
 use manga_translator_core::config::{Settings, options};
 use manga_translator_core::i18n::{SUPPORTED_LANGUAGES, t};
@@ -768,14 +768,7 @@ fn preferences_group(theme: Theme, title: String, rows: Vec<Div>) -> Div {
         .flex_col()
         .w_full()
         .gap(px(6.))
-        .child(
-            gpui::div()
-                .px_3()
-                .text_size(px(FONT_BASE))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(theme.text)
-                .child(title),
-        )
+        .child(widgets::group_heading(theme, title).px_3())
         .child(widgets::card(theme, rows))
 }
 

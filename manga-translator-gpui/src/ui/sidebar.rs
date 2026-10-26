@@ -94,7 +94,7 @@ impl MangaApp {
                     .child(
                         div()
                             .text_size(px(FONT_LG))
-                            .font_weight(FontWeight::SEMIBOLD)
+                            .font_weight(FontWeight::BOLD)
                             .text_color(theme.text)
                             .child(t("Manga Translator")),
                     )
