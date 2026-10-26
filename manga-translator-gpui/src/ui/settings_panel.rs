@@ -88,6 +88,29 @@ impl SelectKind {
         })
     }
 
+    /// Subtitle under the row title, taken from the GTK preferences panel.
+    fn description(self) -> Option<&'static str> {
+        Some(match self {
+            SelectKind::TranslationMode => "Wähle den Übersetzungsmodus",
+            SelectKind::Translator => "Wähle den Übersetzungsdienst",
+            SelectKind::TargetLanguage => "Sprache der Übersetzung",
+            SelectKind::Detector => "Methode zur Blasenerkennung",
+            SelectKind::Ocr => "Optical Character Recognition",
+            SelectKind::Inpainter => "Methode zur Bildreparatur",
+            SelectKind::Upscaler => "Bildvergrößerung vor der Übersetzung",
+            SelectKind::Device => "Recheneinheit für die Übersetzung",
+            SelectKind::Renderer => "Methode zur Texteinblendung",
+            SelectKind::Alignment => "Textausrichtung in Blasen",
+            SelectKind::Direction => "Erzwinge horizontale/vertikale Richtung",
+            SelectKind::InpaintingPrecision => "Berechnungsgenauigkeit",
+            SelectKind::VlmType => "Wähle das VLM-Backend",
+            SelectKind::GeminiModel => "Modell für VLM-Korrektur",
+            SelectKind::OpenRouterModel => "Vision-fähiges Modell",
+            SelectKind::UiLanguage => "Wirkt sofort",
+            SelectKind::Sort | SelectKind::ColorScheme => return None,
+        })
+    }
+
     fn options(self, settings: &Settings) -> Vec<String> {
         let static_list =
             |list: &'static [&'static str]| -> Vec<String> { list.iter().map(|s| t(s)).collect() };
@@ -259,6 +282,7 @@ impl MangaApp {
             self.select_row(SelectKind::TargetLanguage),
             self.toggle_row(
                 t("RTL-Textrichtung"),
+                Some(t("Text von rechts nach links (Arabisch, Hebräisch)")),
                 settings.direction_rtl,
                 "toggle-rtl",
                 |s| s.direction_rtl = !s.direction_rtl,
@@ -279,6 +303,7 @@ impl MangaApp {
             self.select_row(SelectKind::Ocr),
             self.toggle_row(
                 t("BBox Zusammenführung (mocr)"),
+                Some(t("Erkennungsboxen zusammenführen (mocr)")),
                 settings.use_mocr_merge,
                 "toggle-mocr",
                 |s| s.use_mocr_merge = !s.use_mocr_merge,
@@ -286,6 +311,7 @@ impl MangaApp {
             ),
             self.stepper_row(
                 t("Erkennungsgröße"),
+                Some(t("Auflösung für Texterkennung")),
                 settings.detection_size as i64,
                 "step-detection",
                 |s, delta| s.detection_size = step_u32(s.detection_size, delta, 256, 4096),
@@ -299,6 +325,7 @@ impl MangaApp {
             self.select_row(SelectKind::InpaintingPrecision),
             self.stepper_row(
                 t("Inpainting-Größe"),
+                Some(t("Auflösung für Bildreparatur")),
                 settings.inpainting_size as i64,
                 "step-inpainting",
                 |s, delta| s.inpainting_size = step_u32(s.inpainting_size, delta, 256, 4096),
@@ -306,6 +333,7 @@ impl MangaApp {
             ),
             self.stepper_row(
                 t("Masken-Dilatation"),
+                Some(t("Textmaske erweitern um (px)")),
                 settings.mask_dilation_offset as i64,
                 "step-mask",
                 |s, delta| s.mask_dilation_offset = step_i32(s.mask_dilation_offset, delta, 0, 100),
@@ -313,6 +341,7 @@ impl MangaApp {
             ),
             self.stepper_row(
                 t("Kernel-Größe"),
+                None,
                 settings.kernel_size as i64,
                 "step-kernel",
                 |s, delta| s.kernel_size = step_i32(s.kernel_size, delta, 1, 15),
@@ -341,6 +370,7 @@ impl MangaApp {
             self.select_row(SelectKind::Direction),
             self.stepper_row(
                 t("Schriftgröße (0 = automatisch)"),
+                None,
                 settings.font_size as i64,
                 "step-font-size",
                 |s, delta| s.font_size = step_i32(s.font_size, delta, 0, 200),
@@ -348,6 +378,7 @@ impl MangaApp {
             ),
             self.stepper_row(
                 t("Schriftgröße-Offset"),
+                Some(t("Positive Werte = größerer Text")),
                 settings.font_size_offset as i64,
                 "step-font-offset",
                 |s, delta| s.font_size_offset = step_i32(s.font_size_offset, delta, -50, 50),
@@ -355,6 +386,7 @@ impl MangaApp {
             ),
             self.stepper_row(
                 t("Minimale Schriftgröße"),
+                None,
                 settings.font_size_minimum as i64,
                 "step-font-min",
                 |s, delta| s.font_size_minimum = step_i32(s.font_size_minimum, delta, -1, 200),
@@ -362,6 +394,7 @@ impl MangaApp {
             ),
             self.stepper_row(
                 t("Zeilenabstand (0 = automatisch)"),
+                None,
                 settings.line_spacing as i64,
                 "step-line-spacing",
                 |s, delta| s.line_spacing = step_i32(s.line_spacing, delta, 0, 50),
@@ -370,6 +403,7 @@ impl MangaApp {
             self.free_text_row("font_color", cx),
             self.toggle_row(
                 t("Font-Rahmen deaktivieren"),
+                Some(t("Kein Rand/Umriss um den Text")),
                 settings.disable_font_border,
                 "toggle-border",
                 |s| s.disable_font_border = !s.disable_font_border,
@@ -377,6 +411,7 @@ impl MangaApp {
             ),
             self.toggle_row(
                 t("GROSSBUCHSTABEN"),
+                None,
                 settings.uppercase,
                 "toggle-upper",
                 |s| s.uppercase = !s.uppercase,
@@ -384,6 +419,7 @@ impl MangaApp {
             ),
             self.toggle_row(
                 t("kleinbuchstaben"),
+                None,
                 settings.lowercase,
                 "toggle-lower",
                 |s| s.lowercase = !s.lowercase,
@@ -391,6 +427,7 @@ impl MangaApp {
             ),
             self.toggle_row(
                 t("Silbentrennung aus"),
+                None,
                 settings.no_hyphenation,
                 "toggle-hyphen",
                 |s| s.no_hyphenation = !s.no_hyphenation,
@@ -403,6 +440,7 @@ impl MangaApp {
             self.select_row(SelectKind::Upscaler),
             self.stepper_row(
                 t("Skalierungsfaktor"),
+                Some(t("Vergrößerungsfaktor")),
                 settings.upscale_ratio as i64,
                 "step-upscale",
                 |s, delta| {
@@ -426,6 +464,9 @@ impl MangaApp {
             self.free_text_row("output_directory", cx),
             self.toggle_row(
                 t("Im Originalordner speichern"),
+                Some(t(
+                    "Speichert die Übersetzungen im selben Ordner wie die Originaldateien",
+                )),
                 settings.use_original_folder,
                 "toggle-original-folder",
                 |s| s.use_original_folder = !s.use_original_folder,
@@ -483,7 +524,7 @@ impl MangaApp {
 
     fn select_row(&self, kind: SelectKind) -> Div {
         let theme = self.theme;
-        let mut row = action_row(theme, kind.label());
+        let mut row = action_row(theme, kind.label(), kind.description().map(t));
 
         if let Some(state) = self.selects.get(&kind) {
             // The Select root is `size_full`, so the width has to come from a
@@ -497,24 +538,26 @@ impl MangaApp {
     fn toggle_row(
         &self,
         label: String,
+        desc: Option<String>,
         value: bool,
         id: &'static str,
         apply: fn(&mut Settings),
         cx: &mut Context<Self>,
     ) -> Div {
         let theme = self.theme;
-        action_row(theme, label).child(widgets::toggle(theme, id, value).on_click(cx.listener(
-            move |this, _: &ClickEvent, _window, cx| {
+        action_row(theme, label, desc).child(widgets::toggle(theme, id, value).on_click(
+            cx.listener(move |this, _: &ClickEvent, _window, cx| {
                 apply(&mut this.config.settings);
                 this.config.save_settings();
                 cx.notify();
-            },
-        )))
+            }),
+        ))
     }
 
     fn stepper_row(
         &self,
         label: String,
+        desc: Option<String>,
         value: i64,
         id: &'static str,
         apply: fn(&mut Settings, i64),
@@ -588,7 +631,7 @@ impl MangaApp {
                     .child("+"),
             );
 
-        action_row(theme, label).child(stepper)
+        action_row(theme, label, desc).child(stepper)
     }
 
     fn free_text_row(&self, key: &'static str, cx: &mut Context<Self>) -> Div {
@@ -750,7 +793,7 @@ impl MangaApp {
 
 /// One `AdwActionRow`: title on the left, control on the right, 50 px tall.
 /// The header box keeps 6 px between the label block and the control.
-fn action_row(theme: Theme, label: impl Into<gpui::SharedString>) -> Div {
+fn action_row(theme: Theme, label: impl Into<gpui::SharedString>, desc: Option<String>) -> Div {
     gpui::div()
         .flex()
         .flex_row()
@@ -758,7 +801,7 @@ fn action_row(theme: Theme, label: impl Into<gpui::SharedString>) -> Div {
         .gap(px(6.))
         .min_h(px(adw::ACTION_ROW_H))
         .px_3()
-        .child(widgets::label_block(theme, label, None))
+        .child(widgets::label_block(theme, label, desc))
 }
 
 /// One `AdwPreferencesGroup`: a bold title above a card that holds the rows,
