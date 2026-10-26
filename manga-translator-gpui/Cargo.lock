@@ -3750,6 +3750,7 @@ dependencies = [
  "alphanumeric-sort",
  "async-channel",
  "env_logger",
+ "futures",
  "gpui-kit",
  "image",
  "log",

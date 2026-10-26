@@ -64,6 +64,7 @@ fn key_bindings() -> Vec<KeyBinding> {
     // own bindings win, and Escape propagates when no translation is running,
     // so dialogs and dropdowns still close.
     vec![
+        KeyBinding::new("ctrl-o", OpenDirectory, None),
         KeyBinding::new("ctrl-r", Reload, None),
         KeyBinding::new("f5", Reload, None),
         KeyBinding::new("alt-left", GoUp, None),

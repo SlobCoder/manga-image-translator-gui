@@ -12,7 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_channel::Sender;
 use gpui::component::select::SelectState;
-use gpui::{Context, Entity, ExternalPaths, FocusHandle, Image, Window, prelude::*};
+use gpui::{
+    Context, Entity, ExternalPaths, FocusHandle, Image, PathPromptOptions, Window, prelude::*,
+};
 
 use manga_translator_core::config::ConfigManager;
 use manga_translator_core::i18n::t;
@@ -70,6 +72,7 @@ pub struct MangaApp {
     pub(crate) theme: Theme,
     pub(crate) render_tx: Sender<RenderCmd>,
     pub(crate) preview_tx: Sender<PathBuf>,
+    pub(crate) bridge: Arc<IpcBridge>,
     pub(crate) bridge_tx: Sender<BridgeCmd>,
     pub(crate) generation: Arc<Generation>,
     pub(crate) cancel: Arc<AtomicBool>,
@@ -182,6 +185,7 @@ impl MangaApp {
             theme,
             render_tx,
             preview_tx,
+            bridge: bridge.clone(),
             bridge_tx,
             generation,
             cancel,
@@ -374,6 +378,83 @@ impl MangaApp {
     pub(crate) fn go_home(&mut self, cx: &mut Context<Self>) {
         let home = self.config.manga_home_dir();
         self.load_folder(home, cx);
+    }
+
+    /// Ask the platform for a folder and open it.
+    pub(crate) fn pick_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(t("Ordner öffnen").into()),
+        });
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(folder) = paths.into_iter().next() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, _window, cx| this.load_folder(folder, cx));
+        })
+        .detach();
+    }
+
+    /// Ask the platform for a folder and store it in a path setting.
+    pub(crate) fn pick_path_setting(
+        &mut self,
+        key: &'static str,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let receiver = cx.prompt_for_paths(PathPromptOptions {
+            files: false,
+            directories: true,
+            multiple: false,
+            prompt: Some(t("Verzeichnis wählen").into()),
+        });
+
+        cx.spawn_in(window, async move |this, cx| {
+            let Ok(Ok(Some(paths))) = receiver.await else {
+                return;
+            };
+            let Some(path) = paths.into_iter().next() else {
+                return;
+            };
+            let _ = this.update_in(cx, |this, window, cx| {
+                this.apply_path_setting(key, path, window, cx)
+            });
+        })
+        .detach();
+    }
+
+    fn apply_path_setting(
+        &mut self,
+        key: &'static str,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let value = path.to_string_lossy().into_owned();
+        let settings = &mut self.config.settings;
+        match key {
+            "manga_home_directory" => settings.manga_home_directory = value,
+            "output_directory" => settings.output_directory = value,
+            "local_model_path" => settings.local_model_path = value,
+            "virtual_env_path" => settings.virtual_env_path = value,
+            "manga_translator_path" => settings.manga_translator_path = value,
+            _ => return,
+        }
+
+        self.config.save_settings();
+        // The backend reads these when it spawns; keep its config in step.
+        self.bridge.configure_paths(
+            self.config.resolve_venv_site_packages(),
+            self.config.manga_translator_dir(),
+        );
+        self.sync_inputs(window, cx);
+        cx.notify();
     }
 
     /// Open what was dropped: a folder, or the folder holding the dropped
@@ -865,6 +946,18 @@ impl MangaApp {
                 false,
                 |app, value| app.config.settings.font_color = value.to_string(),
             ),
+            (
+                "manga_translator_path",
+                t("Pfad zu manga-image-translator"),
+                false,
+                |app, value| app.config.settings.manga_translator_path = value.to_string(),
+            ),
+            (
+                "virtual_env_path",
+                t("Python-Umgebung (venv)"),
+                false,
+                |app, value| app.config.settings.virtual_env_path = value.to_string(),
+            ),
         ];
 
         for (key, placeholder, masked, apply) in defs {
@@ -921,6 +1014,8 @@ impl MangaApp {
             "output_directory" => settings.output_directory.clone(),
             "manga_home_directory" => settings.manga_home_directory.clone(),
             "font_color" => settings.font_color.clone(),
+            "manga_translator_path" => settings.manga_translator_path.clone(),
+            "virtual_env_path" => settings.virtual_env_path.clone(),
             _ => String::new(),
         }
     }
@@ -1093,6 +1188,9 @@ impl Render for MangaApp {
                 "MangaApp"
             })
             .on_action(cx.listener(|this, _: &Reload, _window, cx| this.reload(cx)))
+            .on_action(cx.listener(|this, _: &OpenDirectory, window, cx| {
+                this.pick_folder(window, cx)
+            }))
             .on_action(cx.listener(|this, _: &GoUp, _window, cx| this.go_up(cx)))
             .on_action(cx.listener(|this, _: &Translate, _window, cx| this.start_translation(cx)))
             .on_action(cx.listener(|this, _: &CancelTranslation, _window, cx| {

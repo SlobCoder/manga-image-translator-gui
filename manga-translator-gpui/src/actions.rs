@@ -9,6 +9,7 @@ actions!(
     manga,
     [
         Reload,
+        OpenDirectory,
         GoUp,
         Translate,
         CancelTranslation,

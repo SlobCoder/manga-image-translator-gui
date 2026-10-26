@@ -276,6 +276,9 @@ impl MangaApp {
 
         // ---- Detection ---------------------------------------------------
         content = content
+            .child(widgets::section_header(theme, t("Umgebung")))
+            .child(self.free_text_row("manga_translator_path", cx))
+            .child(self.free_text_row("virtual_env_path", cx))
             .child(widgets::section_header(theme, t("Erkennung")))
             .child(self.select_row(SelectKind::Detector, cx))
             .child(self.select_row(SelectKind::Ocr, cx))
@@ -601,7 +604,7 @@ impl MangaApp {
             .child(stepper)
     }
 
-    fn free_text_row(&self, key: &'static str, _cx: &mut Context<Self>) -> Div {
+    fn free_text_row(&self, key: &'static str, cx: &mut Context<Self>) -> Div {
         let theme = self.theme;
         let label = self.input_label(key);
         let input: Option<Entity<TextInput>> = self.inputs.get(key).cloned();
@@ -615,7 +618,20 @@ impl MangaApp {
         );
 
         if let Some(input) = input {
-            row = row.child(input);
+            let mut line = gpui::div().flex().flex_row().items_center().gap_1();
+            line = line.child(gpui::div().flex_1().child(input));
+
+            // Path settings get a picker next to the text field.
+            if has_folder_picker(key) {
+                line = line.child(
+                    widgets::button(gpui::ElementId::Name(format!("pick-{key}").into()), "…")
+                        .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                            this.pick_path_setting(key, window, cx);
+                        })),
+                );
+            }
+
+            row = row.child(line);
         }
 
         row
@@ -634,6 +650,8 @@ impl MangaApp {
             "output_directory" => t("Ausgabeordner"),
             "manga_home_directory" => t("Manga-Home-Ordner"),
             "font_color" => t("Schriftfarbe (#ffffff oder #fg:#bg)"),
+            "manga_translator_path" => t("Pfad zu manga-image-translator"),
+            "virtual_env_path" => t("Python-Umgebung (venv)"),
             other => other.to_string(),
         }
     }
@@ -730,6 +748,18 @@ impl MangaApp {
 // ---------------------------------------------------------------------------
 // Small numeric helpers
 // ---------------------------------------------------------------------------
+
+/// Settings that name a folder and therefore offer the native picker.
+fn has_folder_picker(key: &str) -> bool {
+    matches!(
+        key,
+        "manga_home_directory"
+            | "output_directory"
+            | "local_model_path"
+            | "virtual_env_path"
+            | "manga_translator_path"
+    )
+}
 
 fn step_i32(value: i32, delta: i64, min: i32, max: i32) -> i32 {
     ((value as i64 + delta).clamp(min as i64, max as i64)) as i32

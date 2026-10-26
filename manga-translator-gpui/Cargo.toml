@@ -21,6 +21,7 @@ image = "0.25"
 unicode-segmentation = "1"
 alphanumeric-sort = "1"
 async-channel = "2"
+futures = "0.3"
 
 [profile.dev]
 opt-level = 1

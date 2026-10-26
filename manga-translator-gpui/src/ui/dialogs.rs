@@ -133,6 +133,7 @@ pub(crate) fn open_shortcuts(window: &mut Window, cx: &mut App) {
                     .child(shortcut_group(
                         t("Allgemein"),
                         &[
+                            ("Ctrl+O", t("Verzeichnis öffnen")),
                             ("Ctrl+R / F5", t("Aktualisieren")),
                             ("Alt+←", t("Zurück")),
                             ("Ctrl+T", t("Übersetzen")),
