@@ -27,21 +27,21 @@ impl MangaApp {
 
         actions = actions
             .child(
-                widgets::button(theme, "btn-up", t("↑ Übergeordnet")).on_click(cx.listener(
+                widgets::button("btn-up", t("↑ Übergeordnet")).on_click(cx.listener(
                     |this, _: &ClickEvent, _window, cx| {
                         this.go_up(cx);
                     },
                 )),
             )
             .child(
-                widgets::button(theme, "btn-home", t("⌂ Manga")).on_click(cx.listener(
+                widgets::button("btn-home", t("⌂ Manga")).on_click(cx.listener(
                     |this, _: &ClickEvent, _window, cx| {
                         this.go_home(cx);
                     },
                 )),
             )
             .child(
-                widgets::button(theme, "btn-reload", t("↻ Neu laden")).on_click(cx.listener(
+                widgets::button("btn-reload", t("↻ Neu laden")).on_click(cx.listener(
                     |this, _: &ClickEvent, _window, cx| {
                         this.reload(cx);
                     },
@@ -50,14 +50,14 @@ impl MangaApp {
 
         if self.translating {
             actions = actions.child(
-                widgets::button(theme, "btn-cancel", t("Abbrechen")).on_click(cx.listener(
+                widgets::button("btn-cancel", t("Abbrechen")).on_click(cx.listener(
                     |this, _: &ClickEvent, _window, cx| {
                         this.cancel_translation(cx);
                     },
                 )),
             );
         } else {
-            let mut translate = widgets::primary_button(theme, "btn-translate", t("Übersetzen"));
+            let mut translate = widgets::primary_button("btn-translate", t("Übersetzen"));
             if !has_images {
                 translate = translate.opacity(0.45);
             }
@@ -341,7 +341,7 @@ impl MangaApp {
             .bg(theme.panel)
             .border_t_1()
             .border_color(theme.border)
-            .child(widgets::pill(theme, state_label, state_color))
+            .child(widgets::pill(state_label, state_color))
             .child(
                 div()
                     .flex_1()
@@ -361,7 +361,7 @@ impl MangaApp {
             .child(
                 div()
                     .w(px(120.))
-                    .child(widgets::progress_bar(theme, self.progress)),
+                    .child(widgets::progress_bar(self.progress)),
             )
             .child(
                 div()

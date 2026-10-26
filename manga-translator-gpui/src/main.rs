@@ -11,7 +11,7 @@ mod ui;
 mod workers;
 
 use gpui::prelude::*;
-use gpui::{App, Application, Bounds, TitlebarOptions, WindowBounds, WindowOptions, px, size};
+use gpui::{App, TitlebarOptions, WindowBounds, WindowOptions, px, size};
 
 use manga_translator_core::config::ConfigManager;
 use manga_translator_core::i18n;
@@ -30,8 +30,12 @@ fn main() {
         i18n::set_language(&settings.ui_language);
     }
 
-    Application::new().run(move |cx: &mut App| {
+    gpui::application().run(move |cx: &mut App| {
+        gpui::init(cx);
         cx.bind_keys(ui::text_input::key_bindings());
+
+        // Give the component library the same palette the panels draw with.
+        theme::Theme::for_scheme(&settings.color_scheme).apply_to_component_theme(cx);
 
         // Optional CLI argument: the folder to open at startup.
         let start_dir = std::env::args().nth(1).map(std::path::PathBuf::from);
@@ -39,9 +43,9 @@ fn main() {
         // Restore the window geometry remembered by either frontend.
         let width = settings.window_width.max(980) as f32;
         let height = settings.window_height.max(620) as f32;
-        let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
+        let bounds = gpui::Bounds::centered(None, size(px(width), px(height)), cx);
 
-        cx.open_window(
+        gpui::open_window(
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(980.), px(620.))),
@@ -53,6 +57,7 @@ fn main() {
                 app_id: Some("com.mangatranslator.gpui".into()),
                 ..Default::default()
             },
+            cx,
             |_window, cx| cx.new(move |cx| app::MangaApp::new(cx, start_dir.clone())),
         )
         .expect("failed to open the main window");

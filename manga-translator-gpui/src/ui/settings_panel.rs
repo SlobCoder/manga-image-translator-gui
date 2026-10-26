@@ -677,6 +677,7 @@ impl MangaApp {
         }
         if kind == SelectKind::ColorScheme {
             self.theme = Theme::for_scheme(&self.config.settings.color_scheme);
+            self.theme.apply_to_component_theme(cx);
             self.sync_inputs(cx);
         }
         if kind == SelectKind::Sort {

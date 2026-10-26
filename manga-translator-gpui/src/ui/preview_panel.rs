@@ -75,14 +75,14 @@ impl MangaApp {
                     .child(title),
             )
             .child(
-                widgets::button(theme, "btn-prev", "‹").on_click(cx.listener(
+                widgets::button("btn-prev", "‹").on_click(cx.listener(
                     |this, _: &ClickEvent, _window, cx| {
                         this.select_next(-1, cx);
                     },
                 )),
             )
             .child(
-                widgets::button(theme, "btn-next", "›").on_click(cx.listener(
+                widgets::button("btn-next", "›").on_click(cx.listener(
                     |this, _: &ClickEvent, _window, cx| {
                         this.select_next(1, cx);
                     },
@@ -284,7 +284,14 @@ fn compare_canvas(
             };
 
             // Base layer: the original page.
-            let _ = window.paint_image(fitted, Corners::default(), original.clone(), 0, false);
+            let _ = window.paint_image(
+                fitted,
+                fitted,
+                Corners::default(),
+                original.clone(),
+                0,
+                false,
+            );
 
             // Overlay: the translated page, clipped to the right of the divider.
             if let Some(translated) = &translated {
@@ -300,6 +307,7 @@ fn compare_canvas(
                 };
                 window.with_content_mask(Some(mask), |window| {
                     let _ = window.paint_image(
+                        fitted,
                         fitted,
                         Corners::default(),
                         translated.clone(),

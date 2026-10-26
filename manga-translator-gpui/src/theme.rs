@@ -3,12 +3,18 @@
 // Design tokens for the GPUI frontend. Deliberately self-contained (no
 // dependency on the GTK/adw theme or on matugen output) so the window looks
 // consistent on every desktop.
+//
+// The palette is mirrored into the `gpui-component` theme (see
+// `apply_to_component_theme`) so widgets taken from that library look like the
+// hand-drawn panels instead of falling back to its default colours.
 
-use gpui::{Rgba, rgb};
+use gpui::{App, Rgba, rgb};
 
 /// A minimal, copyable set of design tokens.
 #[derive(Debug, Clone, Copy)]
 pub struct Theme {
+    /// Whether this palette belongs to the dark scheme.
+    pub dark: bool,
     pub bg: Rgba,
     pub panel: Rgba,
     pub panel_alt: Rgba,
@@ -28,6 +34,7 @@ pub struct Theme {
 impl Theme {
     pub fn dark() -> Self {
         Self {
+            dark: true,
             bg: rgb(0x141517),
             panel: rgb(0x1b1d20),
             panel_alt: rgb(0x23262a),
@@ -47,6 +54,7 @@ impl Theme {
 
     pub fn light() -> Self {
         Self {
+            dark: false,
             bg: rgb(0xf4f6f8),
             panel: rgb(0xffffff),
             panel_alt: rgb(0xeceff3),
@@ -72,6 +80,122 @@ impl Theme {
             // dark default keeps the app readable on both setups.
             _ => Self::dark(),
         }
+    }
+
+    /// Push this palette into the `gpui-component` global theme.
+    ///
+    /// Call once after `gpui::init`, and again whenever the scheme changes.
+    /// Library widgets (`Button`, `Input`, `Select`, `Dialog`, …) read their
+    /// colours from that global, so this is what keeps them in step with the
+    /// panels that still draw themselves.
+    pub fn apply_to_component_theme(&self, cx: &mut App) {
+        use gpui::component::{Theme as ComponentTheme, ThemeMode};
+
+        ComponentTheme::change(
+            if self.dark {
+                ThemeMode::Dark
+            } else {
+                ThemeMode::Light
+            },
+            None,
+            cx,
+        );
+
+        let palette = *self;
+        ComponentTheme::update(cx, move |theme| {
+            let c = &mut theme.colors;
+            let bg = palette.bg.into();
+            let panel = palette.panel.into();
+            let panel_alt = palette.panel_alt.into();
+            let border = palette.border.into();
+            let text = palette.text.into();
+            let text_muted = palette.text_muted.into();
+            let text_faint = palette.text_faint.into();
+            let accent = palette.accent.into();
+            let accent_hover = palette.accent_hover.into();
+            let accent_fg = palette.accent_fg.into();
+            let success = palette.success.into();
+            let danger = palette.danger.into();
+            let selection = palette.selection.into();
+
+            // Surfaces
+            c.background = bg;
+            c.foreground = text;
+            c.border = border;
+            c.popover = panel;
+            c.popover_foreground = text;
+            c.muted = panel_alt;
+            c.muted_foreground = text_muted;
+            c.skeleton = panel_alt;
+            c.drop_target = selection;
+            c.drag_border = accent;
+
+            // Text
+            c.secondary_foreground = text_muted;
+            c.caret = accent;
+
+            // Accent / primary
+            c.primary = accent;
+            c.primary_hover = accent_hover;
+            c.primary_active = accent_hover;
+            c.primary_foreground = accent_fg;
+            c.accent = selection;
+            c.accent_foreground = text;
+            c.ring = accent;
+            c.selection = selection;
+
+            // Secondary + plain buttons
+            c.secondary = panel_alt;
+            c.secondary_hover = border;
+            c.secondary_active = border;
+            c.button = panel_alt;
+            c.button_hover = border;
+            c.button_active = border;
+            c.button_foreground = text;
+
+            // Status colours
+            c.success = success;
+            c.success_foreground = accent_fg;
+            c.success_hover = success;
+            c.success_active = success;
+            c.danger = danger;
+            c.danger_foreground = accent_fg;
+            c.danger_hover = danger;
+            c.danger_active = danger;
+
+            // Inputs, lists and tabs
+            c.input = border;
+            c.list = panel;
+            c.list_even = panel;
+            c.list_head = panel_alt;
+            c.list_hover = panel_alt;
+            c.list_active = selection;
+            c.list_active_border = accent;
+            c.tab = panel_alt;
+            c.tab_bar = panel;
+            c.tab_foreground = text_muted;
+            c.tab_active = panel_alt;
+            c.tab_active_foreground = text;
+            c.table = panel;
+
+            // Sidebar
+            c.sidebar = panel;
+            c.sidebar_foreground = text;
+            c.sidebar_border = border;
+            c.sidebar_accent = selection;
+            c.sidebar_accent_foreground = text;
+            c.sidebar_primary = accent;
+            c.sidebar_primary_foreground = accent_fg;
+
+            // Indicators
+            c.progress_bar = border;
+            c.scrollbar = panel;
+            c.scrollbar_thumb = text_faint;
+            c.scrollbar_thumb_hover = text_muted;
+            c.slider_bar = border;
+            c.slider_thumb = accent;
+            c.switch = border;
+        });
     }
 }
 

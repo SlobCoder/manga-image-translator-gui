@@ -14,8 +14,8 @@ use gpui::{
     App, Bounds, ClipboardItem, Context, CursorStyle, Element, ElementId, ElementInputHandler,
     Entity, EntityInputHandler, FocusHandle, Focusable, GlobalElementId, IntoElement, KeyDownEvent,
     LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad, Pixels, Point,
-    Render, SharedString, Style, Styled, TextRun, UTF16Selection, UnderlineStyle, Window, actions,
-    div, fill, point, prelude::*, px, relative, size,
+    Render, SharedString, Style, Styled, TextAlign, TextRun, UTF16Selection, UnderlineStyle,
+    Window, actions, div, fill, point, prelude::*, px, relative, size,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -39,6 +39,25 @@ actions!(
     ]
 );
 
+/// Modifier prefix for the clipboard shortcuts. `gpui-pre` only resolves the
+/// `secondary-` alias through `KeyBinding::load`, which needs an `App` at
+/// startup; the static constructor takes explicit modifiers instead.
+#[cfg(target_os = "macos")]
+mod keys {
+    pub const SELECT_ALL: &str = "cmd-a";
+    pub const COPY: &str = "cmd-c";
+    pub const CUT: &str = "cmd-x";
+    pub const PASTE: &str = "cmd-v";
+}
+
+#[cfg(not(target_os = "macos"))]
+mod keys {
+    pub const SELECT_ALL: &str = "ctrl-a";
+    pub const COPY: &str = "ctrl-c";
+    pub const CUT: &str = "ctrl-x";
+    pub const PASTE: &str = "ctrl-v";
+}
+
 /// Key bindings to register once at startup.
 pub fn key_bindings() -> Vec<gpui::KeyBinding> {
     use gpui::KeyBinding;
@@ -52,10 +71,10 @@ pub fn key_bindings() -> Vec<gpui::KeyBinding> {
         KeyBinding::new("shift-right", SelectRight, ctx),
         KeyBinding::new("home", Home, ctx),
         KeyBinding::new("end", End, ctx),
-        KeyBinding::new("secondary-a", SelectAll, ctx),
-        KeyBinding::new("secondary-v", Paste, ctx),
-        KeyBinding::new("secondary-c", Copy, ctx),
-        KeyBinding::new("secondary-x", Cut, ctx),
+        KeyBinding::new(keys::SELECT_ALL, SelectAll, ctx),
+        KeyBinding::new(keys::PASTE, Paste, ctx),
+        KeyBinding::new(keys::COPY, Copy, ctx),
+        KeyBinding::new(keys::CUT, Cut, ctx),
     ]
 }
 
@@ -206,7 +225,7 @@ impl TextInput {
         cx: &mut Context<Self>,
     ) {
         self.is_selecting = true;
-        window.focus(&self.focus_handle);
+        window.focus(&self.focus_handle, cx);
 
         if event.modifiers.shift {
             self.select_to(self.index_for_mouse_position(event.position), cx);
@@ -652,8 +671,15 @@ impl Element for TextElement {
             Some(line) => line,
             None => return,
         };
-        line.paint(bounds.origin, window.line_height(), window, cx)
-            .ok();
+        line.paint(
+            bounds.origin,
+            window.line_height(),
+            TextAlign::Left,
+            None,
+            window,
+            cx,
+        )
+        .ok();
 
         if focus_handle.is_focused(window) {
             if let Some(cursor) = prepaint.cursor.take() {

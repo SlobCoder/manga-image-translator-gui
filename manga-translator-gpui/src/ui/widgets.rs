@@ -1,8 +1,21 @@
 // manga-translator-gpui/src/ui/widgets.rs
 //
 // Small, reusable visual primitives shared by all panels.
+//
+// Buttons, progress bars and status tags come from `gpui-component`; their
+// colours follow the palette pushed into the component theme by
+// `Theme::apply_to_component_theme`. The toggle and the select trigger stay
+// hand-drawn: `Switch::on_click` reports a bool rather than a click, and the
+// dropdown needs the caller's own popup state (a full `Select` needs an
+// `Entity` that owns it, which is the next migration step).
 
-use gpui::{Div, ElementId, FontWeight, SharedString, Stateful, div, prelude::*, px, relative};
+use gpui::component::{
+    Sizable as _, Size,
+    button::{Button, ButtonVariants as _},
+    progress::Progress,
+    tag::Tag,
+};
+use gpui::{Div, ElementId, FontWeight, Hsla, Rgba, SharedString, Stateful, div, prelude::*, px};
 
 use crate::theme::{Theme, sizes::*};
 
@@ -45,51 +58,14 @@ pub fn label_block(theme: Theme, label: impl Into<SharedString>, desc: Option<St
     block
 }
 
-/// Solid button. The caller attaches the click handler.
-pub fn button(
-    theme: Theme,
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .justify_center()
-        .h(px(28.))
-        .px_3()
-        .rounded_md()
-        .bg(theme.panel_alt)
-        .border_1()
-        .border_color(theme.border)
-        .text_size(px(FONT_BASE))
-        .text_color(theme.text)
-        .cursor_pointer()
-        .hover(move |this| this.bg(theme.border))
-        .child(label.into())
+/// Neutral button at the row height used by the panels.
+pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
+    Button::new(id).label(label).with_size(px(28.))
 }
 
 /// Accent-coloured primary button.
-pub fn primary_button(
-    theme: Theme,
-    id: impl Into<ElementId>,
-    label: impl Into<SharedString>,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .items_center()
-        .justify_center()
-        .h(px(28.))
-        .px_4()
-        .rounded_md()
-        .bg(theme.accent)
-        .text_size(px(FONT_BASE))
-        .font_weight(FontWeight::SEMIBOLD)
-        .text_color(theme.accent_fg)
-        .cursor_pointer()
-        .hover(move |this| this.bg(theme.accent_hover))
-        .child(label.into())
+pub fn primary_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
+    Button::new(id).label(label).primary().with_size(px(28.))
 }
 
 /// Small square checkbox-style toggle.
@@ -158,20 +134,11 @@ pub fn select_trigger(
 }
 
 /// Horizontal progress bar.
-pub fn progress_bar(theme: Theme, fraction: f64) -> Div {
-    let f = fraction.clamp(0.0, 1.0) as f32;
-    div()
-        .h(px(4.))
-        .w_full()
-        .rounded_full()
-        .bg(theme.border)
-        .child(
-            div()
-                .h(px(4.))
-                .w(relative(if f > 0.0 { f } else { 0.0001 }))
-                .rounded_full()
-                .bg(theme.accent),
-        )
+pub fn progress_bar(fraction: f64) -> Progress {
+    let percent = (fraction.clamp(0.0, 1.0) * 100.0) as f32;
+    Progress::new("status-progress")
+        .value(percent)
+        .with_size(Size::XSmall)
 }
 
 /// Muted caption text.
@@ -184,14 +151,9 @@ pub fn caption(theme: Theme, text: impl Into<SharedString>) -> Div {
 }
 
 /// Coloured status pill.
-pub fn pill(_theme: Theme, text: impl Into<SharedString>, color: gpui::Rgba) -> Div {
-    let background = gpui::Hsla::from(color).opacity(0.18);
-    div()
-        .px_2()
-        .py(px(1.))
+pub fn pill(text: impl Into<SharedString>, color: Rgba) -> Tag {
+    let color = Hsla::from(color);
+    Tag::custom(color.opacity(0.18), color, color.opacity(0.35))
         .rounded_full()
-        .bg(background)
-        .text_size(px(FONT_SM))
-        .text_color(color)
         .child(text.into())
 }
