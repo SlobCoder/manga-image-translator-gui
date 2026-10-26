@@ -11,8 +11,8 @@ use std::rc::Rc;
 
 use gpui::component::input::{Input, InputEvent, InputState};
 use gpui::{
-    App, Context, Entity, IntoElement, ParentElement as _, Render, SharedString, Styled as _,
-    Window, div, prelude::*, px,
+    App, Context, Entity, Focusable as _, IntoElement, ParentElement as _, Render,
+    SharedString, Styled as _, Window, div, prelude::*, px,
 };
 
 type ChangeFn = Rc<dyn Fn(&str, &mut Window, &mut App)>;
@@ -81,6 +81,12 @@ impl TextInput {
         state.update(cx, |state, cx| {
             state.set_value(value.to_string(), window, cx)
         });
+    }
+
+    /// Move the keyboard focus into this field.
+    pub fn focus(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let handle = self.state.read(cx).focus_handle(cx);
+        window.focus(&handle, cx);
     }
 
     fn notify_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {

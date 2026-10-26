@@ -12,7 +12,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_channel::Sender;
 use gpui::component::select::SelectState;
-use gpui::{Context, Entity, Image, Window, prelude::*};
+use gpui::{Context, Entity, FocusHandle, Image, Window, prelude::*};
 
 use manga_translator_core::config::ConfigManager;
 use manga_translator_core::i18n::t;
@@ -74,6 +74,10 @@ pub struct MangaApp {
     pub(crate) generation: Arc<Generation>,
     pub(crate) cancel: Arc<AtomicBool>,
 
+    /// Focus of the panel shell; keeps the app key context in the dispatch
+    /// path when no control is focused.
+    pub(crate) focus_handle: FocusHandle,
+
     // ---- file browser ---------------------------------------------------
     pub(crate) cwd: PathBuf,
     pub(crate) folders: Vec<FolderItem>,
@@ -95,6 +99,7 @@ pub struct MangaApp {
     // ---- panel widths ---------------------------------------------------
     pub(crate) sidebar_width: f32,
     pub(crate) settings_width: f32,
+    pub(crate) settings_visible: bool,
     pub(crate) split_drag: Option<SplitDrag>,
 
     // ---- settings panel -------------------------------------------------
@@ -174,6 +179,7 @@ impl MangaApp {
             bridge_tx,
             generation,
             cancel,
+            focus_handle: cx.focus_handle(),
             cwd: cwd.clone(),
             folders: Vec::new(),
             images: Vec::new(),
@@ -189,6 +195,7 @@ impl MangaApp {
             comparing_drag: false,
             sidebar_width,
             settings_width,
+            settings_visible: true,
             split_drag: None,
             selects: HashMap::new(),
             inputs: HashMap::new(),
@@ -201,6 +208,7 @@ impl MangaApp {
 
         app.build_inputs(cx, window);
         app.build_selects(cx, window);
+        window.focus(&app.focus_handle, cx);
         app.load_folder(cwd, cx);
         app.backend_state = BackendState::Starting;
         let _ = app.bridge_tx.send_blocking(BridgeCmd::EnsureReady);
@@ -338,6 +346,13 @@ impl MangaApp {
     pub(crate) fn go_home(&mut self, cx: &mut Context<Self>) {
         let home = self.config.manga_home_dir();
         self.load_folder(home, cx);
+    }
+
+    /// Put the keyboard focus into the image filter.
+    pub(crate) fn focus_search(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(input) = self.search_input.clone() {
+            input.update(cx, |input, cx| input.focus(window, cx));
+        }
     }
 
     pub(crate) fn open_folder(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -856,8 +871,34 @@ pub(crate) fn shorten_path(path: &Path) -> String {
 
 impl Render for MangaApp {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use crate::actions::*;
+
         let theme = self.theme;
         let weak = cx.entity().downgrade();
+        let settings_visible = self.settings_visible;
+
+        let mut body = gpui::div()
+            .flex()
+            .flex_row()
+            .flex_1()
+            .min_h(gpui::px(0.))
+            .child(self.render_sidebar(cx))
+            .child(crate::ui::splitter::splitter(
+                theme,
+                weak.clone(),
+                SplitterKind::Sidebar,
+            ))
+            .child(self.render_preview(cx));
+
+        if settings_visible {
+            body = body
+                .child(crate::ui::splitter::splitter(
+                    theme,
+                    weak,
+                    SplitterKind::Settings,
+                ))
+                .child(self.render_settings(cx));
+        }
 
         gpui::div()
             .flex()
@@ -866,27 +907,41 @@ impl Render for MangaApp {
             .bg(theme.bg)
             .text_color(theme.text)
             .text_size(gpui::px(crate::theme::sizes::FONT_BASE))
-            .child(self.render_header(cx))
-            .child(
-                gpui::div()
-                    .flex()
-                    .flex_row()
-                    .flex_1()
-                    .min_h(gpui::px(0.))
-                    .child(self.render_sidebar(cx))
-                    .child(crate::ui::splitter::splitter(
-                        theme,
-                        weak.clone(),
-                        SplitterKind::Sidebar,
-                    ))
-                    .child(self.render_preview(cx))
-                    .child(crate::ui::splitter::splitter(
-                        theme,
-                        weak,
-                        SplitterKind::Settings,
-                    ))
-                    .child(self.render_settings(cx)),
+            .track_focus(&self.focus_handle)
+            .key_context(if self.translating {
+                "MangaApp Translating"
+            } else {
+                "MangaApp"
+            })
+            .on_action(cx.listener(|this, _: &Reload, _window, cx| this.reload(cx)))
+            .on_action(cx.listener(|this, _: &GoUp, _window, cx| this.go_up(cx)))
+            .on_action(cx.listener(|this, _: &Translate, _window, cx| this.start_translation(cx)))
+            .on_action(cx.listener(|this, _: &CancelTranslation, _window, cx| {
+                if this.translating {
+                    this.cancel_translation(cx);
+                } else {
+                    // Leave Escape to whatever dialog or dropdown is open.
+                    cx.propagate();
+                }
+            }))
+            .on_action(cx.listener(|this, _: &ToggleSettings, _window, cx| {
+                this.settings_visible = !this.settings_visible;
+                cx.notify();
+            }))
+            .on_action(
+                cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)),
             )
+            .on_action(cx.listener(|_this, _: &ShowShortcuts, window, cx| {
+                crate::ui::dialogs::open_shortcuts(window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ShowLog, window, cx| {
+                crate::ui::dialogs::open_log(this.theme, window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &ShowAbout, window, cx| {
+                crate::ui::dialogs::open_about(this.theme, window, cx)
+            }))
+            .child(self.render_header(cx))
+            .child(body)
             .child(self.render_status_bar(cx))
     }
 }

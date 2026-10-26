@@ -2,6 +2,8 @@
 //
 // Top toolbar, folder/image navigation and the bottom status bar.
 
+use gpui::component::button::DropdownButton;
+use gpui::component::menu::PopupMenuItem;
 use gpui::{
     ClickEvent, Context, Div, FontWeight, ObjectFit, SharedString, div, img, prelude::*, px,
     uniform_list,
@@ -11,8 +13,8 @@ use gpui::ImageSource;
 use manga_translator_core::i18n::t;
 
 use crate::app::{BackendState, MangaApp, format_size, shorten_path};
-use crate::theme::sizes::*;
-use crate::ui::widgets;
+use crate::theme::{Theme, sizes::*};
+use crate::ui::{dialogs, widgets};
 
 impl MangaApp {
     // -----------------------------------------------------------------------
@@ -49,13 +51,11 @@ impl MangaApp {
             );
 
         if self.translating {
-            actions = actions.child(
-                widgets::button("btn-cancel", t("Abbrechen")).on_click(cx.listener(
-                    |this, _: &ClickEvent, _window, cx| {
-                        this.cancel_translation(cx);
-                    },
-                )),
-            );
+            actions = actions.child(widgets::button("btn-cancel", t("Abbrechen")).on_click(
+                cx.listener(|this, _: &ClickEvent, _window, cx| {
+                    this.cancel_translation(cx);
+                }),
+            ));
         } else {
             let mut translate = widgets::primary_button("btn-translate", t("Übersetzen"));
             if !has_images {
@@ -67,6 +67,8 @@ impl MangaApp {
                 },
             )));
         }
+
+        actions = actions.child(menu_button(theme));
 
         div()
             .h(px(HEADER_H))
@@ -370,4 +372,28 @@ impl MangaApp {
                     .child(percent),
             )
     }
+}
+
+/// Overflow menu: help and the log viewer.
+fn menu_button(theme: Theme) -> impl IntoElement {
+    use gpui::component::button::Button;
+    use gpui::component::Sizable as _;
+
+    DropdownButton::new("btn-menu")
+        .button(Button::new("btn-menu-main").label("☰").with_size(px(28.)))
+        .dropdown_menu(move |menu, _window, _cx| {
+            menu.item(
+                PopupMenuItem::new(t("Tastenkürzel"))
+                    .on_click(|_, window, cx| dialogs::open_shortcuts(window, cx)),
+            )
+            .item(
+                PopupMenuItem::new(t("Log anzeigen"))
+                    .on_click(move |_, window, cx| dialogs::open_log(theme, window, cx)),
+            )
+            .item(PopupMenuItem::separator())
+            .item(
+                PopupMenuItem::new(t("Über Manga Translator"))
+                    .on_click(move |_, window, cx| dialogs::open_about(theme, window, cx)),
+            )
+        })
 }
