@@ -17,8 +17,8 @@ use std::f64::consts::{PI, TAU};
 
 use gpui::{
     App, Bounds, ContentMask, Context, Corners, Hsla, IntoElement, PathBuilder, Pixels, Point,
-    Render, Rgba, Size, TextAlign, TextRun, WeakEntity, Window, canvas, fill, font,
-    linear_color_stop, linear_gradient, point, prelude::*, px, size,
+    Render, Rgba, Size, WeakEntity, Window, canvas, fill, linear_color_stop, linear_gradient,
+    point, prelude::*, px, size,
 };
 
 // ---------------------------------------------------------------------------
@@ -834,10 +834,6 @@ fn paint_bubble(
 }
 
 /// Draw one centred line of text inside a canvas.
-///
-/// gpui has no direct "draw this string here" call in a paint pass: the text is
-/// shaped into a `ShapedLine` first, which is also what gives the run its font
-/// and colour.
 #[allow(clippy::too_many_arguments)]
 fn paint_text(
     window: &mut Window,
@@ -849,37 +845,14 @@ fn paint_text(
     color: Hsla,
     bold: bool,
 ) {
-    if size < 4.0 || text.is_empty() {
-        return;
-    }
-    let family = if bold {
-        font(".SystemUIFont").bold()
-    } else {
-        font(".SystemUIFont")
-    };
-    let run = TextRun {
-        len: text.len(),
-        font: family,
-        color,
-        background_color: None,
-        underline: None,
-        strikethrough: None,
-    };
-    let font_size = px(size as f32);
-    let shaped = {
-        let text_system = window.text_system();
-        text_system.shape_line(text.to_string().into(), font_size, &[run], None)
-    };
-    let width = shaped.width().as_f32() as f64;
-    let line_height = size * 1.15;
-    let origin = p(center_x - width / 2.0, center_y - line_height / 2.0);
-    let _ = shaped.paint(
-        origin,
-        px(line_height as f32),
-        TextAlign::Left,
-        None,
+    crate::ui::canvas_text::paint_text(
         window,
         app,
+        text,
+        p(center_x, center_y),
+        px(size as f32),
+        color,
+        bold,
     );
 }
 

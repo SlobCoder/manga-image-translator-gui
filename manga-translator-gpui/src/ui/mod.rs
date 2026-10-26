@@ -1,5 +1,6 @@
 // manga-translator-gpui/src/ui/mod.rs
 
+pub mod canvas_text;
 pub mod dialogs;
 pub mod page_turn;
 pub mod preview_panel;

@@ -10,14 +10,16 @@ use std::sync::Arc;
 
 use gpui::{
     AnyElement, App, Bounds, ClickEvent, ContentMask, Context, Corners, DispatchPhase, Div, Entity,
-    FontWeight, Image, ImageSource, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
-    Pixels, RenderImage, WeakEntity, Window, canvas, div, fill, img, point, prelude::*, px, size,
+    FontWeight, Hsla, Image, ImageSource, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
+    PathBuilder, Pixels, RenderImage, WeakEntity, Window, canvas, div, fill, img, point,
+    prelude::*, px, size,
 };
 
 use manga_translator_core::i18n::t;
 
 use crate::app::{MangaApp, PreviewMode};
 use crate::theme::{Theme, sizes::*};
+use crate::ui::canvas_text;
 use crate::ui::page_turn;
 use crate::ui::widgets;
 
@@ -108,7 +110,6 @@ impl MangaApp {
             ),
             PreviewMode::Compare => match self.preview.clone() {
                 Some(original) => canvas_body(
-                    theme,
                     self.split,
                     original,
                     self.translated_preview.clone(),
@@ -240,7 +241,6 @@ fn empty_state(theme: Theme, message: String, page_turn: Entity<page_turn::PageT
 // ---------------------------------------------------------------------------
 
 fn canvas_body(
-    theme: Theme,
     split: f32,
     original: Arc<Image>,
     translated: Option<Arc<Image>>,
@@ -253,7 +253,7 @@ fn canvas_body(
         .w_full()
         .overflow_hidden()
         .p_3()
-        .child(compare_canvas(theme, split, original, translated, weak));
+        .child(compare_canvas(split, original, translated, weak));
 
     if has_translated {
         wrapper = wrapper.cursor(gpui::CursorStyle::ResizeColumn);
@@ -263,23 +263,18 @@ fn canvas_body(
 }
 
 fn compare_canvas(
-    theme: Theme,
     split: f32,
     original: Arc<Image>,
     translated: Option<Arc<Image>>,
     weak: WeakEntity<MangaApp>,
 ) -> impl IntoElement {
-    let line: gpui::Hsla = theme.accent_fg.into();
-    let halo: gpui::Hsla = gpui::Hsla::from(theme.bg).opacity(0.55);
-    let handle: gpui::Hsla = theme.accent.into();
-
     canvas(
         move |_bounds, window, cx| {
             let original = original.use_render_image(window, cx);
             let translated = translated.and_then(|image| image.use_render_image(window, cx));
             (original, translated)
         },
-        move |bounds, (original, translated), window, _cx| {
+        move |bounds, (original, translated), window, cx| {
             let Some(original) = original else {
                 return;
             };
@@ -320,27 +315,44 @@ fn compare_canvas(
                     );
                 });
 
-                // Divider: a dark halo with a light core so it stays visible on
-                // both light and dark manga pages.
+                // Slider in the GTK style: a black 4.5 px line under a 2 px
+                // white one, a 12 px white handle with chevrons, and the
+                // position in percent under the handle.
                 let top = fitted.origin.y;
                 let height = fitted.size.height;
+                let cy = px(top.as_f32() + height.as_f32() / 2.0);
+
                 window.paint_quad(fill(
-                    Bounds::new(point(split_x - px(1.5), top), size(px(3.), height)),
-                    halo,
+                    Bounds::new(point(split_x - px(2.25), top), size(px(4.5), height)),
+                    gpui::rgba(0x00000099),
                 ));
                 window.paint_quad(fill(
-                    Bounds::new(point(split_x - px(0.5), top), size(px(1.), height)),
-                    line,
+                    Bounds::new(point(split_x - px(1.), top), size(px(2.), height)),
+                    gpui::rgba(0xffffffe6),
                 ));
 
-                let handle_bounds = Bounds::new(
-                    point(
-                        split_x - px(5.),
-                        px(f32::from(top) + f32::from(height) / 2.0 - 22.0),
-                    ),
-                    size(px(10.), px(44.)),
+                paint_disc(
+                    window,
+                    split_x,
+                    cy,
+                    13.0,
+                    Hsla::from(gpui::rgba(0x00000099)),
                 );
-                window.paint_quad(fill(handle_bounds, handle).corner_radii(px(5.)));
+                paint_disc(window, split_x, cy, 12.0, Hsla::from(gpui::rgb(0xfafafa)));
+                if let Ok(path) = handle_arrows(split_x, cy).build() {
+                    window.paint_path(path, Hsla::from(gpui::rgb(0x333333)));
+                }
+
+                let percent = format!("{}%", (split * 100.0).round() as i32);
+                canvas_text::paint_text(
+                    window,
+                    cx,
+                    &percent,
+                    point(split_x, px(cy.as_f32() + 21.0)),
+                    px(9.),
+                    Hsla::from(gpui::rgb(0x333333)),
+                    true,
+                );
             }
 
             // ---- drag handling -------------------------------------------
@@ -395,7 +407,22 @@ fn compare_canvas(
                 }
                 app.update(cx, |app, cx| {
                     app.comparing_drag = false;
+                    // The GTK slider overshoots by 1.5 % and snaps back after
+                    // 80 ms, which is what makes the release feel damped.
+                    let final_pos = app.split;
+                    app.split = bounce_target(final_pos);
                     cx.notify();
+
+                    cx.spawn(async move |this, cx| {
+                        cx.background_executor()
+                            .timer(std::time::Duration::from_millis(80))
+                            .await;
+                        let _ = this.update(cx, |app, cx| {
+                            app.split = final_pos;
+                            cx.notify();
+                        });
+                    })
+                    .detach();
                 });
             });
         },
@@ -426,6 +453,56 @@ fn fitted_rect(bounds: Bounds<Pixels>, image: &RenderImage) -> Option<Bounds<Pix
     let y = px(f32::from(bounds.origin.y) + (available_height - f32::from(height)) / 2.0);
 
     Some(Bounds::new(point(x, y), size(width, height)))
+}
+
+// ---------------------------------------------------------------------------
+// Comparison slider chrome
+// ---------------------------------------------------------------------------
+
+/// Filled circle for the slider handle.
+fn paint_disc(window: &mut Window, cx: Pixels, cy: Pixels, radius: f32, color: Hsla) {
+    let mut builder = PathBuilder::fill();
+    let mut points = Vec::with_capacity(32);
+    for i in 0..32 {
+        let a = i as f32 / 32.0 * std::f32::consts::TAU;
+        points.push(point(
+            px(cx.as_f32() + radius * a.cos()),
+            px(cy.as_f32() + radius * a.sin()),
+        ));
+    }
+    builder.add_polygon(&points, true);
+    if let Ok(path) = builder.build() {
+        window.paint_path(path, color);
+    }
+}
+
+/// The two chevrons on the handle, as one stroked path.
+fn handle_arrows(cx: Pixels, cy: Pixels) -> PathBuilder {
+    let mut builder = PathBuilder::stroke(px(2.0));
+    let x = cx.as_f32();
+    let y = cy.as_f32();
+
+    builder.move_to(point(px(x - 5.0), px(y)));
+    builder.line_to(point(px(x - 9.0), px(y - 4.0)));
+    builder.move_to(point(px(x - 5.0), px(y)));
+    builder.line_to(point(px(x - 9.0), px(y + 4.0)));
+
+    builder.move_to(point(px(x + 5.0), px(y)));
+    builder.line_to(point(px(x + 9.0), px(y - 4.0)));
+    builder.move_to(point(px(x + 5.0), px(y)));
+    builder.line_to(point(px(x + 9.0), px(y + 4.0)));
+
+    builder
+}
+
+/// The GTK slider overshoots by 1.5 % on release and snaps back after 80 ms,
+/// which is what makes letting go feel damped.
+fn bounce_target(pos: f32) -> f32 {
+    if pos > 0.5 {
+        (pos + 0.015).min(0.98)
+    } else {
+        (pos - 0.015).max(0.02)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -467,4 +544,20 @@ fn segment_button(
         .when(dimmed, |this| this.opacity(0.5))
         .child(label)
         .into_any_element()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bounce_target;
+
+    #[test]
+    fn bounce_overshoots_then_stays_inside_the_range() {
+        // Right of the middle it overshoots to the right, left of it to the left.
+        assert!(bounce_target(0.70) > 0.70);
+        assert!(bounce_target(0.30) < 0.30);
+        // Never past the clamp the drag uses.
+        assert!(bounce_target(0.98) <= 0.98);
+        assert!(bounce_target(0.02) >= 0.02);
+        assert!((bounce_target(0.5) - 0.485).abs() < 1e-6);
+    }
 }

@@ -616,10 +616,7 @@ impl MangaApp {
 
     /// Move the comparison divider to `x` (window coordinates) inside `area`.
     pub(crate) fn set_split_at_x(&mut self, x: f32, area_left: f32, area_width: f32) {
-        if area_width <= 0.0 {
-            return;
-        }
-        self.split = ((x - area_left) / area_width).clamp(0.0, 1.0);
+        self.split = split_from_x(x, area_left, area_width);
     }
 
     // -----------------------------------------------------------------------
@@ -1259,9 +1256,26 @@ impl Render for MangaApp {
     }
 }
 
+/// Fraction of the preview area the divider sits at. Kept away from the edges
+/// so the handle stays grabbable, like GTK's 0.02..0.98 clamp.
+fn split_from_x(x: f32, area_left: f32, area_width: f32) -> f32 {
+    if area_width <= 0.0 {
+        return 0.5;
+    }
+    ((x - area_left) / area_width).clamp(0.02, 0.98)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn split_stays_inside_the_grabbable_range() {
+        assert_eq!(split_from_x(-100.0, 0.0, 200.0), 0.02);
+        assert_eq!(split_from_x(500.0, 0.0, 200.0), 0.98);
+        assert!((split_from_x(100.0, 0.0, 200.0) - 0.5).abs() < 1e-6);
+        assert_eq!(split_from_x(10.0, 0.0, 0.0), 0.5);
+    }
 
     fn temp_dir(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
