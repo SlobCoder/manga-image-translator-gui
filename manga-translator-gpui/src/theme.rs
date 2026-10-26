@@ -8,7 +8,9 @@
 // `apply_to_component_theme`) so widgets taken from that library look like the
 // hand-drawn panels instead of falling back to its default colours.
 
-use gpui::{App, Rgba, px, rgb};
+use gpui::{App, Hsla, Rgba, px, rgb};
+
+use manga_translator_core::config::{AccentColor, Settings, find_preset};
 
 /// A minimal, copyable set of design tokens.
 #[derive(Debug, Clone, Copy)]
@@ -70,6 +72,22 @@ impl Theme {
             warning: rgb(0xa9781c),
             selection: rgb(0xcfe0fb),
         }
+    }
+
+    /// Scheme and accent from the shared configuration.
+    pub fn from_settings(settings: &Settings) -> Self {
+        Self::for_scheme(&settings.color_scheme).with_accent(&settings.accent_color)
+    }
+
+    /// Replace the accent with a preset name, a `#rrggbb` string, or
+    /// `system`/empty, which keeps the built-in per-scheme accent.
+    pub fn with_accent(mut self, name: &str) -> Self {
+        if let Some((accent, foreground)) = resolve_accent(name) {
+            self.accent = accent;
+            self.accent_fg = foreground;
+            self.accent_hover = hover_for(accent, self.dark);
+        }
+        self
     }
 
     pub fn for_scheme(scheme: &str) -> Self {
@@ -199,6 +217,54 @@ impl Theme {
             c.switch = border;
         });
     }
+}
+
+/// The accent a setting names, as `(accent, foreground)`.
+fn resolve_accent(name: &str) -> Option<(Rgba, Rgba)> {
+    let name = name.trim();
+    if name.is_empty() || name == "system" {
+        return None;
+    }
+
+    let (hex, foreground) = match find_preset(name) {
+        Some(preset) if !preset.hex.is_empty() => (preset.hex, preset.fg),
+        _ if is_hex(name) => (name.to_string(), AccentColor::foreground_for(name)),
+        _ => return None,
+    };
+
+    Some((parse_hex(&hex)?, parse_hex(&foreground)?))
+}
+
+fn is_hex(value: &str) -> bool {
+    value.len() == 7 && value.starts_with('#') && value[1..].chars().all(|c| c.is_ascii_hexdigit())
+}
+
+pub(crate) fn parse_hex(value: &str) -> Option<Rgba> {
+    if !is_hex(value) {
+        return None;
+    }
+    let channel = |range: std::ops::Range<usize>| {
+        u8::from_str_radix(&value[range], 16)
+            .ok()
+            .map(|v| v as f32 / 255.0)
+    };
+    Some(Rgba {
+        r: channel(1..3)?,
+        g: channel(3..5)?,
+        b: channel(5..7)?,
+        a: 1.0,
+    })
+}
+
+/// A slightly brighter accent for dark schemes, a little darker for light.
+fn hover_for(accent: Rgba, dark: bool) -> Rgba {
+    let mut hsla: Hsla = accent.into();
+    hsla.l = if dark {
+        (hsla.l + 0.10).min(1.0)
+    } else {
+        (hsla.l - 0.08).max(0.0)
+    };
+    hsla.into()
 }
 
 /// Shared spacing / sizing constants.

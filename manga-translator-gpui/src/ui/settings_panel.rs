@@ -732,7 +732,7 @@ impl MangaApp {
             cx.defer_in(window, |this, window, cx| this.refresh_selects(window, cx));
         }
         if kind == SelectKind::ColorScheme {
-            self.theme = Theme::for_scheme(&self.config.settings.color_scheme);
+            self.theme = Theme::from_settings(&self.config.settings);
             self.theme.apply_to_component_theme(cx);
             self.sync_inputs(window, cx);
         }

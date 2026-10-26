@@ -98,7 +98,7 @@ fn main() {
         cx.bind_keys(key_bindings());
 
         // Give the component library the same palette the panels draw with.
-        theme::Theme::for_scheme(&settings.color_scheme).apply_to_component_theme(cx);
+        theme::Theme::from_settings(&settings).apply_to_component_theme(cx);
 
         // Optional CLI argument: the folder to open at startup.
         let start_dir = std::env::args().nth(1).map(std::path::PathBuf::from);

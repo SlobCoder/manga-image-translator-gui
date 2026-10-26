@@ -9,16 +9,18 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use gpui::component::button::Button;
+use gpui::component::input::{Input, InputState};
 use gpui::component::{ActiveTheme as _, Sizable as _, WindowExt as _, switch::Switch, tag::Tag};
 use gpui::{
-    App, Context, IntoElement, ParentElement as _, Render, ScrollHandle, SharedString, Styled as _,
-    Window, div, prelude::*, px,
+    App, ClickEvent, Context, ElementId, Entity, IntoElement, ParentElement as _, Render,
+    ScrollHandle, SharedString, Styled as _, WeakEntity, Window, div, prelude::*, px,
 };
 
-use manga_translator_core::config::ConfigManager;
+use manga_translator_core::config::{ConfigManager, accent_display_name, accent_presets};
 use manga_translator_core::i18n::t;
 
-use crate::theme::{Theme, sizes::*};
+use crate::app::MangaApp;
+use crate::theme::{Theme, parse_hex, sizes::*};
 
 /// Lines of log kept in memory; older ones are dropped.
 const LOG_TAIL_LINES: usize = 800;
@@ -361,6 +363,186 @@ impl Render for LogView {
                     .bg(theme.panel)
                     .p_2()
                     .child(body),
+            )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Accent colour
+// ---------------------------------------------------------------------------
+
+pub(crate) fn open_accent(
+    theme: Theme,
+    app: WeakEntity<MangaApp>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let picker = cx.new(|cx| AccentPicker::new(theme, app, window, cx));
+
+    window.open_dialog(cx, move |dialog, _window, _cx| {
+        dialog
+            .title(t("Akzentfarbe"))
+            .w(px(440.))
+            .child(picker.clone())
+            .footer(
+                Button::new("accent-done")
+                    .label(t("Fertig"))
+                    .on_click(|_, window, cx| window.close_dialog(cx)),
+            )
+    });
+}
+
+/// Accept `#rrggbb` and the bare `rrggbb` people paste from a colour picker.
+fn normalize_hex(value: &str) -> Option<String> {
+    let value = value.trim();
+    let candidate = if value.starts_with('#') {
+        value.to_string()
+    } else {
+        format!("#{value}")
+    };
+    parse_hex(&candidate).map(|_| candidate)
+}
+
+/// Preset swatches plus a free `#rrggbb` field. Every choice is applied
+/// immediately, so the whole window previews it.
+struct AccentPicker {
+    selected: String,
+    app: WeakEntity<MangaApp>,
+    hex: Entity<InputState>,
+    fallback: Theme,
+}
+
+impl AccentPicker {
+    fn new(
+        fallback: Theme,
+        app: WeakEntity<MangaApp>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let selected = app
+            .upgrade()
+            .map(|app| app.read(cx).config.settings.accent_color.clone())
+            .unwrap_or_default();
+        let hex = cx.new(|cx| InputState::new(window, cx).placeholder("#3584e4"));
+
+        Self {
+            selected,
+            app,
+            hex,
+            fallback,
+        }
+    }
+
+    fn apply(&mut self, value: String, cx: &mut Context<Self>) {
+        self.selected = value.clone();
+        if let Some(app) = self.app.upgrade() {
+            app.update(cx, |app, cx| app.set_accent(value, cx));
+        }
+        cx.notify();
+    }
+
+    fn theme(&self, cx: &App) -> Theme {
+        self.app
+            .upgrade()
+            .map(|app| app.read(cx).theme)
+            .unwrap_or(self.fallback)
+    }
+}
+
+impl Render for AccentPicker {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme(cx);
+        // "System" previews the accent the scheme would have without an override.
+        let builtin_accent = if theme.dark {
+            Theme::dark().accent
+        } else {
+            Theme::light().accent
+        };
+        let mut grid = div().flex().flex_col().gap_2();
+
+        for chunk in accent_presets().chunks(3) {
+            let mut row = div().flex().flex_row().gap_2();
+
+            for preset in chunk {
+                let name = preset.name.clone();
+                let label = accent_display_name(&name);
+                let color = if preset.hex.is_empty() {
+                    builtin_accent
+                } else {
+                    parse_hex(&preset.hex).unwrap_or(theme.accent)
+                };
+                let selected = self.selected == name;
+                let id = ElementId::Name(format!("accent-{name}").into());
+
+                row = row.child(
+                    div()
+                        .id(id)
+                        .flex()
+                        .flex_col()
+                        .items_center()
+                        .gap_1()
+                        .cursor_pointer()
+                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
+                            this.apply(name.clone(), cx);
+                        }))
+                        .child(
+                            div()
+                                .w(px(64.))
+                                .h(px(36.))
+                                .rounded_md()
+                                .bg(color)
+                                .border_2()
+                                .border_color(if selected { theme.text } else { theme.border }),
+                        )
+                        .child(
+                            div()
+                                .text_size(px(FONT_SM))
+                                .text_color(if selected {
+                                    theme.text
+                                } else {
+                                    theme.text_muted
+                                })
+                                .child(label),
+                        ),
+                );
+            }
+
+            grid = grid.child(row);
+        }
+
+        let weak = cx.entity().downgrade();
+        div()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .child(grid)
+            .child(divider(theme))
+            .child(caption(
+                t("Eigene Farbe als #rrggbb"),
+                theme.text_muted,
+            ))
+            .child(
+                div()
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .child(div().flex_1().child(Input::new(&self.hex).h(px(28.))))
+                    .child(
+                        Button::new("accent-hex-apply")
+                            .label(t("Anwenden"))
+                            .with_size(px(28.))
+                            .on_click(move |_, _window, cx| {
+                                if let Some(picker) = weak.upgrade() {
+                                    picker.update(cx, |this, cx| {
+                                        let value = this.hex.read(cx).value().to_string();
+                                        if let Some(hex) = normalize_hex(&value) {
+                                            this.apply(hex, cx);
+                                        }
+                                    });
+                                }
+                            }),
+                    ),
             )
     }
 }

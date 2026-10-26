@@ -126,7 +126,7 @@ pub struct MangaApp {
 impl MangaApp {
     pub fn new(cx: &mut Context<Self>, window: &mut Window, start_dir: Option<PathBuf>) -> Self {
         let config = ConfigManager::new();
-        let theme = Theme::for_scheme(&config.settings.color_scheme);
+        let theme = Theme::from_settings(&config.settings);
 
         let cwd = {
             let requested = start_dir.unwrap_or_else(|| {
@@ -378,6 +378,15 @@ impl MangaApp {
     pub(crate) fn go_home(&mut self, cx: &mut Context<Self>) {
         let home = self.config.manga_home_dir();
         self.load_folder(home, cx);
+    }
+
+    /// Store a new accent (preset name or `#rrggbb`) and apply it live.
+    pub(crate) fn set_accent(&mut self, name: String, cx: &mut Context<Self>) {
+        self.config.settings.accent_color = name;
+        self.config.save_settings();
+        self.theme = Theme::from_settings(&self.config.settings);
+        self.theme.apply_to_component_theme(cx);
+        cx.notify();
     }
 
     /// Ask the platform for a folder and open it.
