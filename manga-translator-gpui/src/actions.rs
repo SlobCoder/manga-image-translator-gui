@@ -14,6 +14,8 @@ actions!(
         CancelTranslation,
         ToggleSettings,
         FocusSearch,
+        SelectAllFiles,
+        DeselectAllFiles,
         ShowShortcuts,
         ShowLog,
         ShowAbout,

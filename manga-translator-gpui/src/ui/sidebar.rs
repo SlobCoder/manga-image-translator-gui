@@ -3,6 +3,7 @@
 // Top toolbar, folder/image navigation and the bottom status bar.
 
 use gpui::component::button::DropdownButton;
+use gpui::component::checkbox::Checkbox;
 use gpui::component::menu::PopupMenuItem;
 use gpui::{
     ClickEvent, Context, Div, FontWeight, ObjectFit, SharedString, div, img, prelude::*, px,
@@ -23,7 +24,7 @@ impl MangaApp {
 
     pub(crate) fn render_header(&self, cx: &mut Context<Self>) -> Div {
         let theme = self.theme;
-        let has_images = !self.images.is_empty();
+        let has_selection = self.selected_file_count() > 0;
 
         let mut actions = gpui::div().flex().flex_row().items_center().gap_2();
 
@@ -58,7 +59,7 @@ impl MangaApp {
             ));
         } else {
             let mut translate = widgets::primary_button("btn-translate", t("Übersetzen"));
-            if !has_images {
+            if !has_selection {
                 translate = translate.opacity(0.45);
             }
             actions = actions.child(translate.on_click(cx.listener(
@@ -133,6 +134,7 @@ impl MangaApp {
 
             for (index, folder) in self.folders.iter().enumerate() {
                 let path = folder.path.clone();
+                let checked = self.is_folder_checked(&folder.path);
                 list = list.child(
                     div()
                         .id(("folder", index))
@@ -149,20 +151,38 @@ impl MangaApp {
                             this.open_folder(path.clone(), cx);
                         }))
                         .child(
-                            div()
-                                .text_color(theme.warning)
-                                .text_size(px(FONT_BASE))
-                                .child("▸"),
+                            Checkbox::new(("folder-check", index))
+                                .checked(checked)
+                                .tab_stop(false)
+                                .on_click(cx.listener(move |this, _: &bool, _window, cx| {
+                                    cx.stop_propagation();
+                                    this.toggle_folder_selection(index, cx);
+                                })),
                         )
                         .child(
                             div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .gap_2()
                                 .flex_1()
                                 .min_w(px(0.))
-                                .overflow_hidden()
-                                .whitespace_nowrap()
-                                .text_size(px(FONT_BASE))
-                                .text_color(theme.text_muted)
-                                .child(folder.name.clone()),
+                                .child(
+                                    div()
+                                        .text_color(theme.warning)
+                                        .text_size(px(FONT_BASE))
+                                        .child("▸"),
+                                )
+                                .child(
+                                    div()
+                                        .flex_1()
+                                        .min_w(px(0.))
+                                        .overflow_hidden()
+                                        .whitespace_nowrap()
+                                        .text_size(px(FONT_BASE))
+                                        .text_color(theme.text_muted)
+                                        .child(folder.name.clone()),
+                                ),
                         ),
                 );
             }
@@ -186,7 +206,8 @@ impl MangaApp {
                         continue;
                     };
                     let theme = this.theme;
-                    let is_selected = selected == Some(image_index);
+                    let checked = this.is_file_checked(&image.path);
+                    let previewed = selected == Some(image_index);
                     let thumb = this.thumbs.get(&image.path).cloned();
 
                     let preview: gpui::AnyElement = match thumb {
@@ -219,15 +240,22 @@ impl MangaApp {
                             .gap_2()
                             .px_2()
                             .cursor_pointer()
-                            .bg(if is_selected {
+                            .bg(if checked {
                                 theme.selection
+                            } else if previewed {
+                                theme.panel_alt
                             } else {
                                 theme.panel
                             })
                             .hover(move |style| style.bg(theme.panel_alt))
                             .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                                this.select_image(image_index, cx);
+                                this.toggle_image_selection(image_index, cx);
                             }))
+                            .child(
+                                Checkbox::new(("img-check", image_index))
+                                    .checked(checked)
+                                    .tab_stop(false),
+                            )
                             .child(
                                 div()
                                     .w(px(38.))
@@ -249,7 +277,7 @@ impl MangaApp {
                                     .child(
                                         div()
                                             .text_size(px(FONT_BASE))
-                                            .text_color(if is_selected {
+                                            .text_color(if checked || previewed {
                                                 theme.text
                                             } else {
                                                 theme.text_muted
@@ -325,6 +353,13 @@ impl MangaApp {
             BackendState::Unknown => (t("Backend nicht gestartet"), theme.text_faint),
         };
 
+        let checked = self.selected_file_count();
+        let selection = match checked {
+            0 => t("Keine Dateien ausgewählt"),
+            1 => format!("1 {} {}", t("Datei"), t("ausgewählt")),
+            n => format!("{} {} {}", n, t("Dateien"), t("ausgewählt")),
+        };
+
         let percent = format!("{:.0}%", self.progress * 100.0);
         let pages = format!(
             "{} / {}",
@@ -344,6 +379,12 @@ impl MangaApp {
             .border_t_1()
             .border_color(theme.border)
             .child(widgets::pill(state_label, state_color))
+            .child(
+                div()
+                    .text_size(px(FONT_SM))
+                    .text_color(theme.text_muted)
+                    .child(selection),
+            )
             .child(
                 div()
                     .flex_1()

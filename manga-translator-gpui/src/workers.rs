@@ -23,6 +23,13 @@ use crate::theme::sizes;
 
 const IMAGE_EXTENSIONS: &[&str] = &["png", "jpg", "jpeg", "bmp", "tiff", "tif", "webp", "gif"];
 
+/// Whether an extension (without the dot, any case) is a supported page.
+pub(crate) fn is_image_extension(ext: &str) -> bool {
+    IMAGE_EXTENSIONS
+        .iter()
+        .any(|known| known.eq_ignore_ascii_case(ext))
+}
+
 #[derive(Debug, Clone)]
 pub struct FolderItem {
     pub path: PathBuf,

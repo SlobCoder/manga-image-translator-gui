@@ -70,6 +70,8 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-t", Translate, None),
         KeyBinding::new("f9", ToggleSettings, None),
         KeyBinding::new("ctrl-l", FocusSearch, None),
+        KeyBinding::new("ctrl-a", SelectAllFiles, None),
+        KeyBinding::new("ctrl-shift-a", DeselectAllFiles, None),
         KeyBinding::new("f1", ShowShortcuts, None),
         KeyBinding::new("ctrl-shift-l", ShowLog, None),
         KeyBinding::new("escape", CancelTranslation, None),

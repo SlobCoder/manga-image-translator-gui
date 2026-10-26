@@ -5,7 +5,7 @@
 // The three panels (sidebar, preview, settings) are rendered by helper
 // modules but keep their state here so there is exactly one owner.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -84,6 +84,10 @@ pub struct MangaApp {
     pub(crate) images: Vec<ImageItem>,
     pub(crate) thumbs: HashMap<PathBuf, Arc<Image>>,
     pub(crate) selected: Option<usize>,
+    /// Checked images, and folders whose whole content is checked. The
+    /// translation job runs on the union of both.
+    pub(crate) selected_paths: HashSet<PathBuf>,
+    pub(crate) checked_folders: HashMap<PathBuf, Vec<PathBuf>>,
     pub(crate) search: String,
     pub(crate) search_input: Option<Entity<TextInput>>,
 
@@ -185,6 +189,8 @@ impl MangaApp {
             images: Vec::new(),
             thumbs: HashMap::new(),
             selected: None,
+            selected_paths: HashSet::new(),
+            checked_folders: HashMap::new(),
             search: String::new(),
             search_input: None,
             preview: None,
@@ -235,6 +241,8 @@ impl MangaApp {
                 self.images = images;
                 self.thumbs.clear();
                 self.selected = None;
+                self.selected_paths.clear();
+                self.checked_folders.clear();
                 self.preview = None;
                 self.preview_path = None;
                 self.translated_preview = None;
@@ -378,6 +386,78 @@ impl MangaApp {
             self.load_translated_preview(cx);
         }
         cx.notify();
+    }
+
+    // -----------------------------------------------------------------------
+    // Selection
+    // -----------------------------------------------------------------------
+
+    pub(crate) fn is_file_checked(&self, path: &Path) -> bool {
+        self.selected_paths.contains(path)
+    }
+
+    pub(crate) fn is_folder_checked(&self, path: &Path) -> bool {
+        self.checked_folders.contains_key(path)
+    }
+
+    /// Toggle one image; selecting it also previews it.
+    pub(crate) fn toggle_image_selection(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(image) = self.images.get(index) else {
+            return;
+        };
+        let path = image.path.clone();
+        if self.selected_paths.remove(&path) {
+            cx.notify();
+            return;
+        }
+        self.selected_paths.insert(path);
+        self.select_image(index, cx);
+    }
+
+    /// Toggle a folder; checking it selects every image below it.
+    pub(crate) fn toggle_folder_selection(&mut self, index: usize, cx: &mut Context<Self>) {
+        let Some(folder) = self.folders.get(index) else {
+            return;
+        };
+        let path = folder.path.clone();
+        if self.checked_folders.remove(&path).is_none() {
+            let images = scan_images(&path);
+            self.checked_folders.insert(path, images);
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn select_all_files(&mut self, cx: &mut Context<Self>) {
+        for index in self.visible_images() {
+            if let Some(image) = self.images.get(index) {
+                self.selected_paths.insert(image.path.clone());
+            }
+        }
+        cx.notify();
+    }
+
+    pub(crate) fn deselect_all_files(&mut self, cx: &mut Context<Self>) {
+        self.selected_paths.clear();
+        self.checked_folders.clear();
+        cx.notify();
+    }
+
+    /// Number of distinct files checked, directly or through a folder.
+    pub(crate) fn selected_file_count(&self) -> usize {
+        self.selected_files().len()
+    }
+
+    /// Every checked file, sorted the way the browser sorts names.
+    pub(crate) fn selected_files(&self) -> Vec<PathBuf> {
+        let mut all: HashSet<&PathBuf> = self.selected_paths.iter().collect();
+        for paths in self.checked_folders.values() {
+            all.extend(paths.iter());
+        }
+        let mut files: Vec<PathBuf> = all.into_iter().cloned().collect();
+        files.sort_by(|a, b| {
+            alphanumeric_sort::compare_str(&a.to_string_lossy(), &b.to_string_lossy())
+        });
+        files
     }
 
     pub(crate) fn select_next(&mut self, delta: isize, cx: &mut Context<Self>) {
@@ -544,8 +624,9 @@ impl MangaApp {
         if self.translating {
             return;
         }
-        if self.images.is_empty() {
-            self.status = t("Keine Bilder zum Übersetzen in diesem Ordner");
+        let files = self.selected_files();
+        if files.is_empty() {
+            self.status = t("Keine Dateien ausgewählt");
             cx.notify();
             return;
         }
@@ -556,7 +637,6 @@ impl MangaApp {
             return;
         }
 
-        let files: Vec<PathBuf> = self.images.iter().map(|i| i.path.clone()).collect();
         let params = self.build_params();
 
         self.translating = true;
@@ -840,6 +920,30 @@ fn options_get(list: &'static [&'static str], index: u32) -> String {
 }
 
 /// Formats a byte count for the file list.
+/// Recursively collect the images a folder holds, using the same extension
+/// list as the folder scanner in `workers`.
+fn scan_images(dir: &Path) -> Vec<PathBuf> {
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out);
+            } else if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                if crate::workers::is_image_extension(ext) {
+                    out.push(path);
+                }
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    walk(dir, &mut out);
+    out
+}
+
 pub(crate) fn format_size(bytes: u64) -> String {
     const KB: f64 = 1024.0;
     let value = bytes as f64;
@@ -931,6 +1035,12 @@ impl Render for MangaApp {
             .on_action(
                 cx.listener(|this, _: &FocusSearch, window, cx| this.focus_search(window, cx)),
             )
+            .on_action(
+                cx.listener(|this, _: &SelectAllFiles, _window, cx| this.select_all_files(cx)),
+            )
+            .on_action(cx.listener(|this, _: &DeselectAllFiles, _window, cx| {
+                this.deselect_all_files(cx)
+            }))
             .on_action(cx.listener(|_this, _: &ShowShortcuts, window, cx| {
                 crate::ui::dialogs::open_shortcuts(window, cx)
             }))
