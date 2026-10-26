@@ -21,7 +21,7 @@ use manga_translator_core::config::{ApiKeys, ConfigManager, accent_display_name,
 use manga_translator_core::i18n::t;
 
 use crate::app::MangaApp;
-use crate::theme::{Theme, adw, parse_hex, sizes::*};
+use crate::theme::{Theme, adw, parse_hex, sizes::*, typo};
 use crate::ui::text_input::TextInput;
 use crate::ui::widgets;
 
@@ -46,7 +46,7 @@ pub(crate) fn open_about(theme: Theme, window: &mut Window, cx: &mut App) {
                     .gap_2()
                     .child(
                         div()
-                            .text_size(px(FONT_LG))
+                            .text_size(px(typo::TITLE_3))
                             .font_weight(gpui::FontWeight::SEMIBOLD)
                             .child("Manga Translator"),
                     )

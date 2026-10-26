@@ -223,6 +223,26 @@ impl Theme {
             c.slider_bar = border;
             c.slider_thumb = accent;
             c.switch = border;
+
+            // Buttons read the legacy `tokens` surface rather than `colors`.
+            // Without these they fall back to the library palette, which made
+            // "primary" black in the light scheme instead of the accent.
+            theme.tokens.button = panel_alt.into();
+            theme.tokens.button_hover = border.into();
+            theme.tokens.button_active = border.into();
+            theme.tokens.button_foreground = text.into();
+            theme.tokens.button_primary = accent.into();
+            theme.tokens.button_primary_hover = accent_hover.into();
+            theme.tokens.button_primary_active = accent_hover.into();
+            theme.tokens.button_primary_foreground = accent_fg.into();
+            theme.tokens.button_secondary = panel_alt.into();
+            theme.tokens.button_secondary_hover = border.into();
+            theme.tokens.button_secondary_active = border.into();
+            theme.tokens.button_secondary_foreground = text.into();
+            theme.tokens.button_danger = danger.into();
+            theme.tokens.button_danger_hover = danger.into();
+            theme.tokens.button_danger_active = danger.into();
+            theme.tokens.button_danger_foreground = accent_fg.into();
         });
     }
 }
@@ -303,6 +323,19 @@ pub mod adw {
     pub const COMPACT_ROW_H: f32 = 34.0;
 }
 
+/// Adwaita's type scale as percentages of the body size (`_labels.scss`).
+/// One constant moves the whole UI, and the steps are the ones GNOME uses.
+pub mod typo {
+    /// 100 % — `body`.
+    pub const BODY: f32 = 12.5;
+    /// 82 % — `caption` and `caption-heading`.
+    pub const CAPTION: f32 = BODY * 0.82;
+    /// 118 % — `title-4`.
+    pub const TITLE_4: f32 = BODY * 1.18;
+    /// 136 % — `title-3` and `title-2`.
+    pub const TITLE_3: f32 = BODY * 1.36;
+}
+
 /// Shared spacing / sizing constants.
 pub mod sizes {
     pub const HEADER_H: f32 = super::adw::HEADER_H;
@@ -319,9 +352,9 @@ pub mod sizes {
     /// Space the preview always keeps, so the panels cannot squeeze it away.
     pub const MIN_PREVIEW: f32 = 260.0;
 
-    pub const FONT_SM: f32 = 11.5;
-    pub const FONT_BASE: f32 = 12.5;
-    pub const FONT_LG: f32 = 14.5;
+    pub const FONT_SM: f32 = super::typo::CAPTION;
+    pub const FONT_BASE: f32 = super::typo::BODY;
+    pub const FONT_LG: f32 = super::typo::TITLE_4;
     /// Thumbnails are fitted into a 112x112 box — the same geometry the GTK
     /// frontend uses, so both share one on-disk thumbnail cache.
     pub const THUMB_FIT: u32 = 112;
