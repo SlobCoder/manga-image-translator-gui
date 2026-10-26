@@ -85,6 +85,9 @@ jobs:
           BINARY="manga-translator-gtk/target/release/manga-translator-gtk"
           LIB_DIR="/usr/lib64"
           APP_NAME="manga-translator-gtk"
+          # Must match APP_ID in the binary: GTK exports it as the Wayland
+          # xdg_toplevel app_id, so the desktop file has to carry that name.
+          APP_ID="com.mangatranslator.gui"
 
           mkdir -p "${APPDIR}"/usr/{bin,lib,share/{applications,icons/hicolor/scalable/apps,locale,metainfo,manga-translator-gtk/backend,glib-2.0/schemas}}
           mkdir -p "${APPDIR}/usr/lib/gdk-pixbuf-2.0/2.10.0/loaders"
@@ -96,13 +99,15 @@ jobs:
           chmod +x "${APPDIR}/usr/bin/${APP_NAME}"
           strip --strip-unneeded "${APPDIR}/usr/bin/${APP_NAME}"
 
-          # ── Desktop file (fix Exec for AppImage) ──
-          cp "packaging/${APP_NAME}.desktop" "${APPDIR}/${APP_NAME}.desktop"
-          sed -i 's|^Exec=.*|Exec='"${APP_NAME}"'|' "${APPDIR}/${APP_NAME}.desktop"
+          # ── Desktop file (named after the app id, Exec fixed for AppImage) ──
+          cp "packaging/${APP_NAME}.desktop" "${APPDIR}/${APP_ID}.desktop"
+          sed -i -e 's|^Exec=.*|Exec='"${APP_NAME}"'|' \
+                 -e 's|^Icon=.*|Icon='"${APP_ID}"'|' \
+                 "${APPDIR}/${APP_ID}.desktop"
 
-          # ── Icon ──
-          cp "packaging/${APP_NAME}.svg" "${APPDIR}/${APP_NAME}.svg"
-          cp "packaging/${APP_NAME}.svg" "${APPDIR}/usr/share/icons/hicolor/scalable/apps/"
+          # ── Icon (under the name referenced by Icon=) ──
+          cp "packaging/${APP_NAME}.svg" "${APPDIR}/${APP_ID}.svg"
+          cp "packaging/${APP_NAME}.svg" "${APPDIR}/usr/share/icons/hicolor/scalable/apps/${APP_ID}.svg"
 
           # ── Python backend (server.py) ──
           cp "manga-translator-gtk/backend/server.py" \

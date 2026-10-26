@@ -22,6 +22,9 @@ set -euo pipefail
 # ── Configuration ─────────────────────────────────────────────────────────────
 ARCH="${ARCH:-$(uname -m)}"
 APP_NAME="manga-translator-gtk"
+# Must match APP_ID in manga-translator-gtk/src/main.rs: GTK sets it as the
+# Wayland xdg_toplevel app_id, and the desktop file has to be named after it.
+APP_ID="com.mangatranslator.gui"
 APP_VERSION="${APP_VERSION:-0.2.0}"
 OUTPUT_DIR="${OUTPUT_DIR:-dist}"
 SKIP_BUILD=0
@@ -158,28 +161,31 @@ chmod 755 "${APPDIR}/usr/bin/${APP_NAME}"
 strip --strip-unneeded "${APPDIR}/usr/bin/${APP_NAME}" 2>/dev/null || warn "strip failed (non-critical)"
 ok "Binary installed"
 
-# Desktop entry
+# Desktop entry (named after the app id so the Wayland app_id matches)
 info "Installing desktop entry..."
 cp "${PACKAGING_DIR}/${APP_NAME}.desktop" \
-   "${APPDIR}/usr/share/applications/${APP_NAME}.desktop"
+   "${APPDIR}/usr/share/applications/${APP_ID}.desktop"
 cp "${PACKAGING_DIR}/${APP_NAME}.desktop" \
-   "${APPDIR}/${APP_NAME}.desktop"
+   "${APPDIR}/${APP_ID}.desktop"
+sed -i 's|^Icon=.*|Icon='"${APP_ID}"'|' \
+   "${APPDIR}/usr/share/applications/${APP_ID}.desktop" \
+   "${APPDIR}/${APP_ID}.desktop"
 ok "Desktop entry installed"
 
-# Icon (SVG)
+# Icon (SVG), installed under the app id referenced by Icon=
 info "Installing icon..."
 cp "${PACKAGING_DIR}/${APP_NAME}.svg" \
-   "${APPDIR}/usr/share/icons/hicolor/scalable/apps/${APP_NAME}.svg"
+   "${APPDIR}/usr/share/icons/hicolor/scalable/apps/${APP_ID}.svg"
 cp "${PACKAGING_DIR}/${APP_NAME}.svg" \
-   "${APPDIR}/${APP_NAME}.svg"
+   "${APPDIR}/${APP_ID}.svg"
 # Also generate a 256x256 PNG from SVG for compatibility
 if command -v rsvg-convert &>/dev/null; then
     rsvg-convert -w 256 -h 256 "${PACKAGING_DIR}/${APP_NAME}.svg" \
-        -o "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+        -o "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${APP_ID}.png"
     ok "Generated 256x256 PNG icon"
 elif command -v convert &>/dev/null; then
     convert -background none -resize 256x256 "${PACKAGING_DIR}/${APP_NAME}.svg" \
-        "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png" 2>/dev/null && \
+        "${APPDIR}/usr/share/icons/hicolor/256x256/apps/${APP_ID}.png" 2>/dev/null && \
         ok "Generated 256x256 PNG icon (ImageMagick)" || \
         warn "Could not convert SVG to PNG (non-critical)"
 else
