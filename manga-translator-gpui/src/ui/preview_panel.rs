@@ -9,19 +9,20 @@
 use std::sync::Arc;
 
 use gpui::{
-    AnyElement, App, Bounds, ClickEvent, ContentMask, Context, Corners, DispatchPhase, Div,
+    AnyElement, App, Bounds, ClickEvent, ContentMask, Context, Corners, DispatchPhase, Div, Entity,
     FontWeight, Image, ImageSource, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ObjectFit,
-    Pixels, RenderImage, WeakEntity, canvas, div, fill, img, point, prelude::*, px, size,
+    Pixels, RenderImage, WeakEntity, Window, canvas, div, fill, img, point, prelude::*, px, size,
 };
 
 use manga_translator_core::i18n::t;
 
 use crate::app::{MangaApp, PreviewMode};
 use crate::theme::{Theme, sizes::*};
+use crate::ui::page_turn;
 use crate::ui::widgets;
 
 impl MangaApp {
-    pub(crate) fn render_preview(&self, cx: &mut Context<Self>) -> Div {
+    pub(crate) fn render_preview(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> Div {
         let theme = self.theme;
         let selected = self.selected_image();
         let translated_available =
@@ -74,20 +75,16 @@ impl MangaApp {
                     .text_color(theme.text_muted)
                     .child(title),
             )
-            .child(
-                widgets::button("btn-prev", "‹").on_click(cx.listener(
-                    |this, _: &ClickEvent, _window, cx| {
-                        this.select_next(-1, cx);
-                    },
-                )),
-            )
-            .child(
-                widgets::button("btn-next", "›").on_click(cx.listener(
-                    |this, _: &ClickEvent, _window, cx| {
-                        this.select_next(1, cx);
-                    },
-                )),
-            );
+            .child(widgets::button("btn-prev", "‹").on_click(cx.listener(
+                |this, _: &ClickEvent, _window, cx| {
+                    this.select_next(-1, cx);
+                },
+            )))
+            .child(widgets::button("btn-next", "›").on_click(cx.listener(
+                |this, _: &ClickEvent, _window, cx| {
+                    this.select_next(1, cx);
+                },
+            )));
 
         for tab in tabs {
             toolbar = toolbar.child(tab);
@@ -98,16 +95,16 @@ impl MangaApp {
             PreviewMode::Original => picture_body(
                 self.preview.clone(),
                 theme,
-                &self.status,
                 translated_available,
                 false,
+                self.page_turn.clone(),
             ),
             PreviewMode::Translated => picture_body(
                 self.translated_preview.clone(),
                 theme,
-                &self.status,
                 translated_available,
                 true,
+                self.page_turn.clone(),
             ),
             PreviewMode::Compare => match self.preview.clone() {
                 Some(original) => canvas_body(
@@ -117,7 +114,11 @@ impl MangaApp {
                     self.translated_preview.clone(),
                     cx.entity().downgrade(),
                 ),
-                None => empty_state(theme, &self.status, translated_available, false),
+                None => empty_state(
+                    theme,
+                    empty_message(translated_available, false),
+                    self.page_turn.clone(),
+                ),
             },
         };
 
@@ -164,9 +165,9 @@ impl MangaApp {
 fn picture_body(
     image: Option<Arc<Image>>,
     theme: Theme,
-    status: &str,
     translated_available: bool,
     showing_translated: bool,
+    page_turn: Entity<page_turn::PageTurnView>,
 ) -> Div {
     match image {
         Some(image) => div()
@@ -191,43 +192,46 @@ fn picture_body(
                             .object_fit(ObjectFit::Contain),
                     ),
             ),
-        None => empty_state(theme, status, translated_available, showing_translated),
+        None => empty_state(
+            theme,
+            empty_message(translated_available, showing_translated),
+            page_turn,
+        ),
     }
 }
 
-fn empty_state(
-    theme: Theme,
-    status: &str,
-    translated_available: bool,
-    showing_translated: bool,
-) -> Div {
-    let message = if showing_translated && !translated_available {
+fn empty_message(translated_available: bool, showing_translated: bool) -> String {
+    if showing_translated && !translated_available {
         t("Noch keine Übersetzung – starte die Übersetzung über die Kopfzeile.")
     } else {
         t("Wähle links eine Seite aus.")
-    };
+    }
+}
 
+/// Nothing selected: the animated manga book, like the GTK placeholder.
+fn empty_state(theme: Theme, message: String, page_turn: Entity<page_turn::PageTurnView>) -> Div {
     div()
-        .flex()
-        .flex_col()
+        .relative()
         .flex_1()
         .min_h(px(0.))
         .w_full()
-        .items_center()
-        .justify_center()
-        .gap_2()
-        .child(div().text_size(px(42.)).text_color(theme.border).child("▤"))
+        .overflow_hidden()
+        .child(page_turn)
         .child(
             div()
-                .text_size(px(FONT_BASE))
-                .text_color(theme.text_faint)
-                .child(message),
-        )
-        .child(
-            div()
-                .text_size(px(FONT_SM))
-                .text_color(theme.text_faint)
-                .child(status.to_string()),
+                .absolute()
+                .bottom_0()
+                .left_0()
+                .right_0()
+                .pb_2()
+                .flex()
+                .justify_center()
+                .child(
+                    div()
+                        .text_size(px(FONT_SM))
+                        .text_color(theme.text_faint)
+                        .child(message),
+                ),
         )
 }
 

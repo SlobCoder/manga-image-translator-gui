@@ -104,6 +104,10 @@ pub struct MangaApp {
     /// Divider position in compare mode, 0.0 (all original) ..= 1.0 (all translated).
     pub(crate) split: f32,
     pub(crate) comparing_drag: bool,
+    /// Clock the placeholder animation reads.
+    pub(crate) page_turn_start: std::time::Instant,
+    /// Retained canvas for the animated placeholder, so a turn only repaints it.
+    pub(crate) page_turn: Entity<crate::ui::page_turn::PageTurnView>,
 
     // ---- panel widths ---------------------------------------------------
     pub(crate) sidebar_width: f32,
@@ -180,6 +184,9 @@ impl MangaApp {
         })
         .detach();
 
+        let weak_app = cx.entity().downgrade();
+        let page_turn = cx.new(move |_| crate::ui::page_turn::PageTurnView::new(weak_app));
+
         let mut app = Self {
             config,
             theme,
@@ -206,6 +213,8 @@ impl MangaApp {
             preview_mode: PreviewMode::Original,
             split: 0.5,
             comparing_drag: false,
+            page_turn_start: std::time::Instant::now(),
+            page_turn,
             sidebar_width,
             settings_width,
             settings_visible: true,
@@ -1153,7 +1162,7 @@ pub(crate) fn shorten_path(path: &Path) -> String {
 }
 
 impl Render for MangaApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         use crate::actions::*;
 
         let theme = self.theme;
@@ -1171,7 +1180,7 @@ impl Render for MangaApp {
                 weak.clone(),
                 SplitterKind::Sidebar,
             ))
-            .child(self.render_preview(cx));
+            .child(self.render_preview(window, cx));
 
         if settings_visible {
             body = body
