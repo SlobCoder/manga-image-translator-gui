@@ -1,0 +1,43 @@
+[package]
+name = "manga-translator-bench"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Decode/encode benchmark: gdk-pixbuf vs glycin vs image-rs"
+
+[[bin]]
+name = "profile"
+path = "src/profile.rs"
+
+[dependencies]
+# GTK stack (same versions as manga-translator-gtk)
+glib = "0.22"
+gio = "0.22"
+gdk-pixbuf = "0.22"
+
+# glycin
+glycin = "4.0.5"
+futures-lite = "2"
+
+# decoder/encoder crates under test
+image = { version = "0.25", features = [
+    "png", "jpeg", "gif", "webp", "tiff", "bmp", "qoi", "exr",
+    "pnm", "tga", "ico", "hdr", "dds", "ff",
+] }
+zune-jpeg = "0.5"
+png = "0.18"
+gif = "0.14"
+tiff = "0.11"
+bmp = "0.5"
+qoi = "0.4"
+exr = "1.74"
+jxl = "0.8"
+hayro-jpeg2000 = "0.4"
+image-webp = "0.2"
+librsvg = "2.63"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 4
+debug = 1
