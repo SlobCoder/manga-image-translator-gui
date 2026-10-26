@@ -763,21 +763,6 @@ fn action_row(theme: Theme, label: impl Into<gpui::SharedString>) -> Div {
 /// One `AdwPreferencesGroup`: a bold title above a card that holds the rows,
 /// divided by hairlines like the boxed list in GTK.
 fn preferences_group(theme: Theme, title: String, rows: Vec<Div>) -> Div {
-    let mut card = gpui::div()
-        .flex()
-        .flex_col()
-        .w_full()
-        .rounded(px(adw::CARD_RADIUS))
-        .bg(theme.card)
-        .overflow_hidden();
-
-    for (index, row) in rows.into_iter().enumerate() {
-        if index > 0 {
-            card = card.child(gpui::div().h(px(1.)).w_full().bg(theme.border));
-        }
-        card = card.child(row);
-    }
-
     gpui::div()
         .flex()
         .flex_col()
@@ -791,7 +776,7 @@ fn preferences_group(theme: Theme, title: String, rows: Vec<Div>) -> Div {
                 .text_color(theme.text)
                 .child(title),
         )
-        .child(card)
+        .child(widgets::card(theme, rows))
 }
 
 // ---------------------------------------------------------------------------

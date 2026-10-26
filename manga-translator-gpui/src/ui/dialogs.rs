@@ -34,51 +34,72 @@ const LOG_POLL: Duration = Duration::from_secs(2);
 // About
 // ---------------------------------------------------------------------------
 
+/// The icon the desktop entry ships, embedded so the About dialog shows the
+/// same artwork as the installed application.
+const APP_ICON: &[u8] = include_bytes!("../../../packaging/manga-translator-gtk.svg");
+
+const APP_WEBSITE: &str = "https://github.com/zyddnys/manga-image-translator";
+
+/// Mirrors `AdwAboutDialog`'s main page: a large centred icon, the application
+/// name in `title-1`, the developer line, and the version as an accent pill,
+/// followed by the credits as property rows in a card.
 pub(crate) fn open_about(theme: Theme, window: &mut Window, cx: &mut App) {
+    // `svg()` only rasterises an alpha mask, which collapses a coloured icon to
+    // its silhouette. Rasterising the SVG ourselves keeps the artwork's colours.
+    let icon = gpui::Image::from_bytes(gpui::ImageFormat::Svg, APP_ICON.to_vec())
+        .to_image_data(cx.svg_renderer())
+        .ok();
+
     window.open_dialog(cx, move |dialog, _window, _cx| {
+        let credits = widgets::card(
+            theme,
+            vec![
+                property_row(theme, "Rust GUI", "SlobCoder, Contributors"),
+                property_row(theme, "Python Backend", "zyddnys, Contributors"),
+                property_row(
+                    theme,
+                    t("Basiert auf"),
+                    "GPUI, gpui-component, gettext, MangaTranslator",
+                ),
+                property_row(theme, t("Lizenz"), "MIT"),
+                website_row(theme),
+            ],
+        );
+
         dialog
-            .title(t("Über Manga Translator"))
-            .w(px(460.))
+            // Adwaita titles the dialog "About"; the application name is the
+            // heading in the body, so repeating it here would say it twice.
+            .title(t("Über"))
+            .w(px(360.))
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap_2()
+                    .items_center()
+                    .gap(px(6.))
+                    .child(match icon.clone() {
+                        Some(icon) => gpui::img(gpui::ImageSource::Render(icon))
+                            .flex_none()
+                            .w(px(128.))
+                            .h(px(128.))
+                            .into_any_element(),
+                        None => div().w(px(128.)).h(px(128.)).into_any_element(),
+                    })
                     .child(
                         div()
-                            .text_size(px(typo::TITLE_3))
-                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                            .text_size(px(typo::TITLE_1))
+                            .font_weight(gpui::FontWeight::EXTRA_BOLD)
+                            .text_color(gpui::Hsla::from(theme.text))
+                            .text_center()
                             .child("Manga Translator"),
                     )
-                    .child(caption(
+                    .child(about_line(
                         t("Ein GUI für Manga Image Translator — geschrieben in Rust mit GPUI"),
                         theme.text_muted,
                     ))
-                    .child(caption(
-                        format!("{} {}", t("Version"), env!("CARGO_PKG_VERSION")),
-                        theme.text_muted,
-                    ))
-                    .child(divider(theme))
-                    .child(credit_line(
-                        "Rust GUI",
-                        "SlobCoder, Contributors",
-                        theme.text_faint,
-                    ))
-                    .child(credit_line(
-                        "Python Backend",
-                        "zyddnys, Contributors",
-                        theme.text_faint,
-                    ))
-                    .child(credit_line(
-                        t("Basiert auf"),
-                        "GPUI, gpui-component, gettext, MangaTranslator",
-                        theme.text_faint,
-                    ))
-                    .child(divider(theme))
-                    .child(caption(
-                        "https://github.com/zyddnys/manga-image-translator",
-                        theme.text_faint,
-                    )),
+                    .child(about_line("Manga Translator Team", theme.text_muted))
+                    .child(version_pill(theme))
+                    .child(div().w_full().mt(px(18.)).mb(px(6.)).child(credits)),
             )
             .footer(
                 Button::new("about-close")
@@ -88,30 +109,74 @@ pub(crate) fn open_about(theme: Theme, window: &mut Window, cx: &mut App) {
     });
 }
 
+/// Centred line under the app name — body size, not a caption.
+fn about_line(text: impl Into<SharedString>, color: gpui::Rgba) -> impl IntoElement {
+    div()
+        .text_size(px(FONT_BASE))
+        .text_color(gpui::Hsla::from(color))
+        .text_center()
+        .child(text.into())
+}
+
+/// `AdwAboutDialog`'s version button: accent-coloured text on a tinted pill.
+fn version_pill(theme: Theme) -> impl IntoElement {
+    div()
+        .mt(px(3.))
+        .px(px(18.))
+        .py(px(3.))
+        .rounded(px(999.))
+        .bg(gpui::Hsla::from(theme.accent).opacity(0.14))
+        .text_size(px(FONT_BASE))
+        .text_color(gpui::Hsla::from(theme.accent))
+        .child(format!("{} {}", t("Version"), env!("CARGO_PKG_VERSION")))
+}
+
+/// One `row.property`: a dimmed caption label on the left, the value beside it.
+fn property_row(theme: Theme, label: impl Into<SharedString>, value: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .flex_row()
+        .items_start()
+        .gap_3()
+        .px_3()
+        .py_2()
+        .min_h(px(adw::ACTION_ROW_H))
+        .child(
+            div()
+                .w(px(110.))
+                .flex_none()
+                .text_size(px(FONT_SM))
+                .text_color(gpui::Hsla::from(theme.text_faint))
+                .child(label.into()),
+        )
+        .child(
+            div()
+                .flex_1()
+                .min_w(px(0.))
+                .text_size(px(FONT_BASE))
+                .text_color(gpui::Hsla::from(theme.text))
+                .child(value),
+        )
+}
+
+fn website_row(theme: Theme) -> Div {
+    property_row(
+        theme,
+        t("Website"),
+        div()
+            .id("about-website")
+            .text_color(gpui::Hsla::from(theme.accent))
+            .cursor_pointer()
+            .on_click(|_, _, cx| cx.open_url(APP_WEBSITE))
+            .child(APP_WEBSITE),
+    )
+}
+
 fn caption(text: impl Into<SharedString>, color: gpui::Rgba) -> impl IntoElement {
     div()
         .text_size(px(FONT_SM))
         .text_color(gpui::Hsla::from(color))
         .child(text.into())
-}
-
-fn credit_line(
-    role: impl Into<SharedString>,
-    names: impl Into<SharedString>,
-    muted: gpui::Rgba,
-) -> impl IntoElement {
-    div()
-        .flex()
-        .flex_row()
-        .gap_2()
-        .text_size(px(FONT_SM))
-        .child(
-            div()
-                .w(px(110.))
-                .text_color(gpui::Hsla::from(muted))
-                .child(role.into()),
-        )
-        .child(div().flex_1().child(names.into()))
 }
 
 fn divider(theme: Theme) -> impl IntoElement {

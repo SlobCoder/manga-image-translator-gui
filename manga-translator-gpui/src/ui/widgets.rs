@@ -119,6 +119,32 @@ pub fn caption(theme: Theme, text: impl Into<SharedString>) -> Div {
         .child(text.into())
 }
 
+/// Hairline row divider, used inside [`card`].
+fn row_divider(theme: Theme) -> Div {
+    div().h(px(1.)).w_full().bg(theme.border)
+}
+
+/// A card holding rows separated by hairlines — the boxed list Adwaita draws
+/// inside a preferences group.
+pub fn card(theme: Theme, rows: Vec<Div>) -> Div {
+    let mut card = div()
+        .flex()
+        .flex_col()
+        .w_full()
+        .rounded(px(adw::CARD_RADIUS))
+        .bg(theme.card)
+        .overflow_hidden();
+
+    for (index, row) in rows.into_iter().enumerate() {
+        if index > 0 {
+            card = card.child(row_divider(theme));
+        }
+        card = card.child(row);
+    }
+
+    card
+}
+
 /// Coloured status pill.
 pub fn pill(text: impl Into<SharedString>, color: Rgba) -> Tag {
     let color = Hsla::from(color);

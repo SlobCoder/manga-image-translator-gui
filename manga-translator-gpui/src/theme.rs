@@ -328,12 +328,12 @@ pub mod adw {
 pub mod typo {
     /// 100 % — `body`.
     pub const BODY: f32 = 12.5;
+    /// 181 % — `title-1`, the app name in the about dialog.
+    pub const TITLE_1: f32 = BODY * 1.81;
     /// 82 % — `caption` and `caption-heading`.
     pub const CAPTION: f32 = BODY * 0.82;
     /// 118 % — `title-4`.
     pub const TITLE_4: f32 = BODY * 1.18;
-    /// 136 % — `title-3` and `title-2`.
-    pub const TITLE_3: f32 = BODY * 1.36;
 }
 
 /// Shared spacing / sizing constants.
