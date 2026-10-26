@@ -40,15 +40,24 @@ pub fn section_header(theme: Theme, title: impl Into<SharedString>) -> Div {
 }
 
 /// Label + optional description, used on the left of a setting row.
+///
+/// Mirrors `AdwActionRow`: the title and the subtitle wrap at word boundaries
+/// (`wrap-mode: word-char`) instead of being cut off, they sit 3 px apart, and
+/// the 6 px above and below keep a two-line title off the row edges.
 pub fn label_block(theme: Theme, label: impl Into<SharedString>, desc: Option<String>) -> Div {
-    let mut block = div().flex().flex_col().flex_1().min_w(px(0.)).child(
-        div()
-            .text_size(px(FONT_BASE))
-            .text_color(theme.text)
-            .whitespace_nowrap()
-            .overflow_hidden()
-            .child(label.into()),
-    );
+    let mut block = div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w(px(0.))
+        .gap(px(3.))
+        .py(px(6.))
+        .child(
+            div()
+                .text_size(px(FONT_BASE))
+                .text_color(theme.text)
+                .child(label.into()),
+        );
     if let Some(desc) = desc {
         block = block.child(
             div()

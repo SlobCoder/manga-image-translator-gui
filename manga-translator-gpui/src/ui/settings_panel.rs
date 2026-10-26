@@ -749,12 +749,13 @@ impl MangaApp {
 // ---------------------------------------------------------------------------
 
 /// One `AdwActionRow`: title on the left, control on the right, 50 px tall.
+/// The header box keeps 6 px between the label block and the control.
 fn action_row(theme: Theme, label: impl Into<gpui::SharedString>) -> Div {
     gpui::div()
         .flex()
         .flex_row()
         .items_center()
-        .gap_3()
+        .gap(px(6.))
         .min_h(px(adw::ACTION_ROW_H))
         .px_3()
         .child(widgets::label_block(theme, label, None))
