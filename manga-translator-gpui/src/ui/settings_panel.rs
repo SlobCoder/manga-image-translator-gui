@@ -4,7 +4,9 @@
 // `ConfigManager::settings` and persists immediately, so the two frontends
 // (GTK and GPUI) always share the same configuration file.
 
-use gpui::{ClickEvent, Context, Div, Entity, FontWeight, prelude::*, px};
+use gpui::component::select::{Select, SelectEvent};
+use gpui::component::{IndexPath, select::SelectState};
+use gpui::{ClickEvent, Context, Div, Entity, FontWeight, Window, prelude::*, px};
 
 use manga_translator_core::config::{Settings, options};
 use manga_translator_core::i18n::{SUPPORTED_LANGUAGES, t};
@@ -18,7 +20,7 @@ use crate::ui::widgets;
 // Select definitions
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SelectKind {
     TranslationMode,
     Translator,
@@ -41,6 +43,28 @@ pub enum SelectKind {
 }
 
 impl SelectKind {
+    /// Every dropdown, in panel order.
+    pub const ALL: [SelectKind; 18] = [
+        SelectKind::TranslationMode,
+        SelectKind::Translator,
+        SelectKind::TargetLanguage,
+        SelectKind::Detector,
+        SelectKind::Ocr,
+        SelectKind::Inpainter,
+        SelectKind::Upscaler,
+        SelectKind::Device,
+        SelectKind::Sort,
+        SelectKind::Renderer,
+        SelectKind::Alignment,
+        SelectKind::Direction,
+        SelectKind::InpaintingPrecision,
+        SelectKind::VlmType,
+        SelectKind::GeminiModel,
+        SelectKind::OpenRouterModel,
+        SelectKind::UiLanguage,
+        SelectKind::ColorScheme,
+    ];
+
     fn label(self) -> String {
         t(match self {
             SelectKind::TranslationMode => "Übersetzungsmodus",
@@ -448,69 +472,17 @@ impl MangaApp {
     // Rows
     // -----------------------------------------------------------------------
 
-    fn select_row(&self, kind: SelectKind, cx: &mut Context<Self>) -> Div {
+    fn select_row(&self, kind: SelectKind, _cx: &mut Context<Self>) -> Div {
         let theme = self.theme;
-        let settings = &self.config.settings;
-        let options = kind.options(settings);
-        let selected = kind.selected(settings);
-        let open = self.open_select == Some(kind);
-        let current = options.get(selected).cloned().unwrap_or_default();
-
         let mut column = gpui::div()
             .flex()
             .flex_col()
             .gap_1()
             .py_1()
-            .child(widgets::label_block(theme, kind.label(), None))
-            .child(
-                widgets::select_trigger(theme, ("sel", kind as usize), current, open).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                        this.toggle_select(kind, cx);
-                    }),
-                ),
-            );
+            .child(widgets::label_block(theme, kind.label(), None));
 
-        if open {
-            let mut list = gpui::div()
-                .id(("opts", kind as usize))
-                .flex()
-                .flex_col()
-                .max_h(px(200.))
-                .overflow_y_scroll()
-                .rounded_md()
-                .border_1()
-                .border_color(theme.border)
-                .bg(theme.panel_alt);
-
-            for (index, name) in options.iter().enumerate() {
-                let is_selected = index == selected;
-                let text_color = if is_selected {
-                    theme.accent
-                } else {
-                    theme.text
-                };
-                list = list.child(
-                    gpui::div()
-                        .id(("opt", kind as usize * 1000 + index))
-                        .px_2()
-                        .py(px(4.))
-                        .text_size(px(FONT_BASE))
-                        .text_color(text_color)
-                        .bg(if is_selected {
-                            theme.selection
-                        } else {
-                            theme.panel_alt
-                        })
-                        .cursor_pointer()
-                        .hover(move |style| style.bg(theme.border))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                            this.apply_select(kind, index, cx);
-                        }))
-                        .child(name.clone()),
-                );
-            }
-
-            column = column.child(list);
+        if let Some(state) = self.selects.get(&kind) {
+            column = column.child(Select::new(state).w_full());
         }
 
         column
@@ -666,19 +638,85 @@ impl MangaApp {
         }
     }
 
-    fn apply_select(&mut self, kind: SelectKind, index: usize, cx: &mut Context<Self>) {
+    /// Create one component `Select` per setting and route its confirmations
+    /// back into `apply_select`.
+    pub(crate) fn build_selects(&mut self, cx: &mut Context<Self>, window: &mut Window) {
+        for kind in SelectKind::ALL {
+            let options = kind.options(&self.config.settings);
+            let selected = kind.selected(&self.config.settings);
+            let state =
+                cx.new(|cx| SelectState::new(options, Some(IndexPath::new(selected)), window, cx));
+
+            cx.subscribe_in(
+                &state,
+                window,
+                move |this, _state, event: &SelectEvent<Vec<String>>, window, cx| {
+                    if let SelectEvent::Confirm(Some(value)) = event {
+                        this.confirm_select(kind, value.clone(), window, cx);
+                    }
+                },
+            )
+            .detach();
+
+            self.selects.insert(kind, state);
+        }
+    }
+
+    fn confirm_select(
+        &mut self,
+        kind: SelectKind,
+        value: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let options = kind.options(&self.config.settings);
+        let Some(index) = options.iter().position(|option| *option == value) else {
+            return;
+        };
+        self.apply_select(kind, index, window, cx);
+        self.sync_select(kind, window, cx);
+    }
+
+    /// Rebuild one dropdown from the settings, keeping the selection.
+    fn sync_select(&self, kind: SelectKind, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(state) = self.selects.get(&kind).cloned() else {
+            return;
+        };
+        let options = kind.options(&self.config.settings);
+        let selected = kind.selected(&self.config.settings);
+        state.update(cx, |state, cx| {
+            state.set_items(options, window, cx);
+            state.set_selected_index(Some(IndexPath::new(selected)), window, cx);
+        });
+    }
+
+    /// Rebuild every dropdown, e.g. after the UI language changed.
+    pub(crate) fn refresh_selects(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        for kind in SelectKind::ALL {
+            self.sync_select(kind, window, cx);
+        }
+    }
+
+    fn apply_select(
+        &mut self,
+        kind: SelectKind,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         let language = kind.apply(&mut self.config.settings, index);
         self.config.save_settings();
-        self.open_select = None;
 
         if let Some(code) = language {
             manga_translator_core::i18n::set_language(&code);
-            self.sync_inputs(cx);
+            self.sync_inputs(window, cx);
+            // The dropdown labels are translated, so they have to be rebuilt.
+            cx.defer_in(window, |this, window, cx| this.refresh_selects(window, cx));
         }
         if kind == SelectKind::ColorScheme {
             self.theme = Theme::for_scheme(&self.config.settings.color_scheme);
             self.theme.apply_to_component_theme(cx);
-            self.sync_inputs(cx);
+            self.sync_inputs(window, cx);
         }
         if kind == SelectKind::Sort {
             let cwd = self.cwd.clone();

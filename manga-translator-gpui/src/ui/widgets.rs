@@ -4,10 +4,8 @@
 //
 // Buttons, progress bars and status tags come from `gpui-component`; their
 // colours follow the palette pushed into the component theme by
-// `Theme::apply_to_component_theme`. The toggle and the select trigger stay
-// hand-drawn: `Switch::on_click` reports a bool rather than a click, and the
-// dropdown needs the caller's own popup state (a full `Select` needs an
-// `Entity` that owns it, which is the next migration step).
+// `Theme::apply_to_component_theme`. The toggle stays hand-drawn because
+// `Switch::on_click` reports a bool rather than a click event.
 
 use gpui::component::{
     Sizable as _, Size,
@@ -91,45 +89,6 @@ pub fn toggle(theme: Theme, id: impl Into<ElementId>, on: bool) -> Stateful<Div>
                 .rounded_full()
                 .bg(knob)
                 .ml(px(if on { 15. } else { 2. })),
-        )
-}
-
-/// Dropdown trigger showing the current value and a chevron.
-pub fn select_trigger(
-    theme: Theme,
-    id: impl Into<ElementId>,
-    value: impl Into<SharedString>,
-    open: bool,
-) -> Stateful<Div> {
-    div()
-        .id(id)
-        .flex()
-        .flex_row()
-        .items_center()
-        .gap_2()
-        .h(px(26.))
-        .px_2()
-        .rounded_md()
-        .border_1()
-        .border_color(if open { theme.accent } else { theme.border })
-        .bg(theme.panel_alt)
-        .cursor_pointer()
-        .hover(move |this| this.border_color(theme.accent))
-        .child(
-            div()
-                .flex_1()
-                .min_w(px(0.))
-                .text_size(px(FONT_BASE))
-                .text_color(theme.text)
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .child(value.into()),
-        )
-        .child(
-            div()
-                .text_size(px(FONT_SM))
-                .text_color(theme.text_faint)
-                .child(if open { "▲" } else { "▼" }),
         )
 }
 

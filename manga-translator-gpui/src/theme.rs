@@ -8,7 +8,7 @@
 // `apply_to_component_theme`) so widgets taken from that library look like the
 // hand-drawn panels instead of falling back to its default colours.
 
-use gpui::{App, Rgba, rgb};
+use gpui::{App, Rgba, px, rgb};
 
 /// A minimal, copyable set of design tokens.
 #[derive(Debug, Clone, Copy)]
@@ -103,6 +103,8 @@ impl Theme {
 
         let palette = *self;
         ComponentTheme::update(cx, move |theme| {
+            // Component defaults are 16 px; the panels run at 12.5.
+            theme.font_size = px(sizes::FONT_BASE);
             let c = &mut theme.colors;
             let bg = palette.bg.into();
             let panel = palette.panel.into();

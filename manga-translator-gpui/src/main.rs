@@ -32,7 +32,6 @@ fn main() {
 
     gpui::application().run(move |cx: &mut App| {
         gpui::init(cx);
-        cx.bind_keys(ui::text_input::key_bindings());
 
         // Give the component library the same palette the panels draw with.
         theme::Theme::for_scheme(&settings.color_scheme).apply_to_component_theme(cx);
@@ -58,7 +57,7 @@ fn main() {
                 ..Default::default()
             },
             cx,
-            |_window, cx| cx.new(move |cx| app::MangaApp::new(cx, start_dir.clone())),
+            |window, cx| cx.new(move |cx| app::MangaApp::new(cx, window, start_dir.clone())),
         )
         .expect("failed to open the main window");
 

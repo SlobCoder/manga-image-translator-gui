@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use async_channel::Sender;
+use gpui::component::select::SelectState;
 use gpui::{Context, Entity, Image, Window, prelude::*};
 
 use manga_translator_core::config::ConfigManager;
@@ -97,7 +98,7 @@ pub struct MangaApp {
     pub(crate) split_drag: Option<SplitDrag>,
 
     // ---- settings panel -------------------------------------------------
-    pub(crate) open_select: Option<SelectKind>,
+    pub(crate) selects: HashMap<SelectKind, Entity<SelectState<Vec<String>>>>,
     pub(crate) inputs: HashMap<&'static str, Entity<TextInput>>,
 
     // ---- translation ----------------------------------------------------
@@ -109,7 +110,7 @@ pub struct MangaApp {
 }
 
 impl MangaApp {
-    pub fn new(cx: &mut Context<Self>, start_dir: Option<PathBuf>) -> Self {
+    pub fn new(cx: &mut Context<Self>, window: &mut Window, start_dir: Option<PathBuf>) -> Self {
         let config = ConfigManager::new();
         let theme = Theme::for_scheme(&config.settings.color_scheme);
 
@@ -189,7 +190,7 @@ impl MangaApp {
             sidebar_width,
             settings_width,
             split_drag: None,
-            open_select: None,
+            selects: HashMap::new(),
             inputs: HashMap::new(),
             translating: false,
             progress: 0.0,
@@ -198,7 +199,8 @@ impl MangaApp {
             backend_state: BackendState::Unknown,
         };
 
-        app.build_inputs(cx);
+        app.build_inputs(cx, window);
+        app.build_selects(cx, window);
         app.load_folder(cwd, cx);
         app.backend_state = BackendState::Starting;
         let _ = app.bridge_tx.send_blocking(BridgeCmd::EnsureReady);
@@ -519,15 +521,6 @@ impl MangaApp {
         self.config.save_api_keys();
     }
 
-    pub(crate) fn toggle_select(&mut self, kind: SelectKind, cx: &mut Context<Self>) {
-        self.open_select = if self.open_select == Some(kind) {
-            None
-        } else {
-            Some(kind)
-        };
-        cx.notify();
-    }
-
     // -----------------------------------------------------------------------
     // Translation
     // -----------------------------------------------------------------------
@@ -696,7 +689,7 @@ impl MangaApp {
     // Text inputs
     // -----------------------------------------------------------------------
 
-    fn build_inputs(&mut self, cx: &mut Context<Self>) {
+    fn build_inputs(&mut self, cx: &mut Context<Self>, window: &mut Window) {
         type Apply = fn(&mut MangaApp, &str);
         let defs: Vec<(&'static str, String, bool, Apply)> = vec![
             (
@@ -743,15 +736,13 @@ impl MangaApp {
             ),
         ];
 
-        let theme = self.theme;
         for (key, placeholder, masked, apply) in defs {
             let initial = self.input_initial_value(key);
             let weak_change = cx.entity().downgrade();
             let weak_commit = cx.entity().downgrade();
 
             let entry = cx.new(|cx| {
-                TextInput::new(cx, theme, initial, placeholder)
-                    .masked(masked)
+                TextInput::new(cx, window, initial, placeholder, masked)
                     .on_change(move |text, _window, cx| {
                         if let Some(app) = weak_change.upgrade() {
                             app.update(cx, |app, _cx| {
@@ -774,7 +765,7 @@ impl MangaApp {
         // Image filter / search field.
         let weak_search = cx.entity().downgrade();
         let search = cx.new(|cx| {
-            TextInput::new(cx, theme, "", t("Bilder filtern…")).on_change(
+            TextInput::new(cx, window, "", t("Bilder filtern…"), false).on_change(
                 move |text, _window, cx| {
                     if let Some(app) = weak_search.upgrade() {
                         app.update(cx, |app, cx| {
@@ -804,16 +795,10 @@ impl MangaApp {
     }
 
     /// Push config values into the text fields (after a language reload etc.).
-    pub(crate) fn sync_inputs(&self, cx: &mut Context<Self>) {
+    pub(crate) fn sync_inputs(&self, window: &mut Window, cx: &mut Context<Self>) {
         for (key, entity) in &self.inputs {
             let value = self.input_initial_value(key);
-            entity.update(cx, |input, cx| input.set_value(&value, cx));
-        }
-        for entity in self.inputs.values() {
-            entity.update(cx, |input, _| input.set_theme(self.theme));
-        }
-        if let Some(search) = &self.search_input {
-            search.update(cx, |input, _| input.set_theme(self.theme));
+            entity.update(cx, |input, cx| input.set_value(&value, window, cx));
         }
     }
 
