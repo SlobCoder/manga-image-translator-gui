@@ -21,7 +21,7 @@ use manga_translator_core::config::{ApiKeys, ConfigManager, accent_display_name,
 use manga_translator_core::i18n::t;
 
 use crate::app::MangaApp;
-use crate::theme::{Theme, parse_hex, sizes::*};
+use crate::theme::{Theme, adw, parse_hex, sizes::*};
 use crate::ui::text_input::TextInput;
 use crate::ui::widgets;
 
@@ -347,7 +347,7 @@ impl Render for LogView {
                     .child(
                         Button::new("log-refresh")
                             .label(t("Aktualisieren"))
-                            .with_size(px(24.))
+                            .with_size(px(adw::BUTTON_H))
                             .on_click({
                                 let weak = weak.clone();
                                 move |_, _window, cx| {
@@ -725,7 +725,7 @@ impl Render for AccentPicker {
                             div()
                                 .w(px(64.))
                                 .h(px(36.))
-                                .rounded_md()
+                                .rounded(px(adw::CARD_RADIUS))
                                 .bg(color)
                                 .border_2()
                                 .border_color(if selected { theme.text } else { theme.border }),
@@ -760,11 +760,15 @@ impl Render for AccentPicker {
                     .flex_row()
                     .items_center()
                     .gap_2()
-                    .child(div().flex_1().child(Input::new(&self.hex).h(px(28.))))
+                    .child(
+                        div()
+                            .flex_1()
+                            .child(Input::new(&self.hex).h(px(adw::ENTRY_H))),
+                    )
                     .child(
                         Button::new("accent-hex-apply")
                             .label(t("Anwenden"))
-                            .with_size(px(28.))
+                            .with_size(px(adw::BUTTON_H))
                             .on_click(move |_, _window, cx| {
                                 if let Some(picker) = weak.upgrade() {
                                     picker.update(cx, |this, cx| {

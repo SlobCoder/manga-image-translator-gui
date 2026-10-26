@@ -15,6 +15,8 @@ use gpui::{
     Styled as _, Window, div, prelude::*, px,
 };
 
+use crate::theme::adw;
+
 type ChangeFn = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
 pub struct TextInput {
@@ -111,6 +113,8 @@ impl TextInput {
 
 impl Render for TextInput {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().w_full().child(Input::new(&self.state).h(px(26.)))
+        div()
+            .w_full()
+            .child(Input::new(&self.state).h(px(adw::ENTRY_H)))
     }
 }

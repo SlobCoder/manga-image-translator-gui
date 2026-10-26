@@ -12,7 +12,7 @@ use manga_translator_core::config::{Settings, options};
 use manga_translator_core::i18n::{SUPPORTED_LANGUAGES, t};
 
 use crate::app::MangaApp;
-use crate::theme::{Theme, sizes::*};
+use crate::theme::{Theme, adw, sizes::*};
 use crate::ui::text_input::TextInput;
 use crate::ui::widgets;
 
@@ -543,8 +543,8 @@ impl MangaApp {
             .flex()
             .flex_row()
             .items_center()
-            .h(px(26.))
-            .rounded_md()
+            .h(px(adw::ENTRY_H))
+            .rounded(px(adw::BUTTON_RADIUS))
             .border_1()
             .border_color(theme.border)
             .bg(theme.panel_alt)

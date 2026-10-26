@@ -15,13 +15,15 @@ use gpui::component::{
 };
 use gpui::{Div, ElementId, FontWeight, Hsla, Rgba, SharedString, Stateful, div, prelude::*, px};
 
-use crate::theme::{Theme, sizes::*};
+use crate::theme::{Theme, adw, sizes::*};
 
 /// Uppercase section label with a thin rule underneath.
 pub fn section_header(theme: Theme, title: impl Into<SharedString>) -> Div {
     div()
         .flex()
         .flex_col()
+        .justify_center()
+        .min_h(px(adw::COMPACT_ROW_H))
         .gap_1()
         .mt_3()
         .mb_1()
@@ -58,25 +60,29 @@ pub fn label_block(theme: Theme, label: impl Into<SharedString>, desc: Option<St
 
 /// Neutral button at the row height used by the panels.
 pub fn button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
-    Button::new(id).label(label).with_size(px(28.))
+    Button::new(id).label(label).with_size(px(adw::BUTTON_H))
 }
 
 /// Accent-coloured primary button.
 pub fn primary_button(id: impl Into<ElementId>, label: impl Into<SharedString>) -> Button {
-    Button::new(id).label(label).primary().with_size(px(28.))
+    Button::new(id)
+        .label(label)
+        .primary()
+        .with_size(px(adw::BUTTON_H))
 }
 
-/// Small square checkbox-style toggle.
+/// Pill-shaped on/off switch, sized like `AdwSwitchRow`.
 pub fn toggle(theme: Theme, id: impl Into<ElementId>, on: bool) -> Stateful<Div> {
     let (track, knob) = if on {
         (theme.accent, theme.accent_fg)
     } else {
         (theme.border, theme.text_faint)
     };
+    let knob_size = adw::SWITCH_H - 6.0;
     div()
         .id(id)
-        .w(px(30.))
-        .h(px(17.))
+        .w(px(adw::SWITCH_W))
+        .h(px(adw::SWITCH_H))
         .rounded_full()
         .bg(track)
         .cursor_pointer()
@@ -84,11 +90,15 @@ pub fn toggle(theme: Theme, id: impl Into<ElementId>, on: bool) -> Stateful<Div>
         .items_center()
         .child(
             div()
-                .w(px(13.))
-                .h(px(13.))
+                .w(px(knob_size))
+                .h(px(knob_size))
                 .rounded_full()
                 .bg(knob)
-                .ml(px(if on { 15. } else { 2. })),
+                .ml(px(if on {
+                    adw::SWITCH_W - knob_size - 3.0
+                } else {
+                    3.0
+                })),
         )
 }
 

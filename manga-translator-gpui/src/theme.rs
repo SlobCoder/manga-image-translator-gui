@@ -123,6 +123,10 @@ impl Theme {
         ComponentTheme::update(cx, move |theme| {
             // Component defaults are 16 px; the panels run at 12.5.
             theme.font_size = px(sizes::FONT_BASE);
+            // Adwaita's control radii. `radius` reaches buttons, inputs,
+            // dropdowns and menus; `radius_lg` dialogs and notifications.
+            theme.radius = px(adw::BUTTON_RADIUS);
+            theme.radius_lg = px(adw::DIALOG_RADIUS);
             let c = &mut theme.colors;
             let bg = palette.bg.into();
             let panel = palette.panel.into();
@@ -267,9 +271,35 @@ fn hover_for(accent: Rgba, dark: bool) -> Rgba {
     hsla.into()
 }
 
+/// Adwaita control metrics, read from the libadwaita stylesheet in
+/// `../libadwaita/src/stylesheet`. Kept apart from [`sizes`], which holds the
+/// panel layout constants: these are the numbers GNOME draws its widgets with.
+pub mod adw {
+    /// `$button_radius` — buttons, entries, menus.
+    pub const BUTTON_RADIUS: f32 = 9.0;
+    /// `$card_radius` — boxed lists and preference groups.
+    pub const CARD_RADIUS: f32 = 12.0;
+    /// `$popover_radius` and `$dialog_radius` (`$button_radius + 6`).
+    pub const DIALOG_RADIUS: f32 = 15.0;
+
+    /// `button { min-height: 24px; padding: 5px 10px }`.
+    pub const BUTTON_H: f32 = 34.0;
+    /// `entry { min-height: 34px; padding: 0 9px }`.
+    pub const ENTRY_H: f32 = 34.0;
+    /// `switch { padding: 3px } > slider { min-width: 20px }`.
+    pub const SWITCH_H: f32 = 26.0;
+    pub const SWITCH_W: f32 = 46.0;
+
+    /// `headerbar { min-height: 47px }`.
+    pub const HEADER_H: f32 = 47.0;
+
+    /// Single-line preference rows and group headers.
+    pub const COMPACT_ROW_H: f32 = 34.0;
+}
+
 /// Shared spacing / sizing constants.
 pub mod sizes {
-    pub const HEADER_H: f32 = 46.0;
+    pub const HEADER_H: f32 = super::adw::HEADER_H;
     pub const STATUS_H: f32 = 26.0;
     pub const SIDEBAR_W: f32 = 268.0;
     pub const SETTINGS_W: f32 = 330.0;
