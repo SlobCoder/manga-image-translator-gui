@@ -10,17 +10,20 @@ use std::time::Duration;
 
 use gpui::component::button::Button;
 use gpui::component::input::{Input, InputState};
+use gpui::component::scroll::ScrollableElement as _;
 use gpui::component::{ActiveTheme as _, Sizable as _, WindowExt as _, switch::Switch, tag::Tag};
 use gpui::{
-    App, ClickEvent, Context, ElementId, Entity, IntoElement, ParentElement as _, Render,
+    App, ClickEvent, Context, Div, ElementId, Entity, IntoElement, ParentElement as _, Render,
     ScrollHandle, SharedString, Styled as _, WeakEntity, Window, div, prelude::*, px,
 };
 
-use manga_translator_core::config::{ConfigManager, accent_display_name, accent_presets};
+use manga_translator_core::config::{ApiKeys, ConfigManager, accent_display_name, accent_presets};
 use manga_translator_core::i18n::t;
 
 use crate::app::MangaApp;
 use crate::theme::{Theme, parse_hex, sizes::*};
+use crate::ui::text_input::TextInput;
+use crate::ui::widgets;
 
 /// Lines of log kept in memory; older ones are dropped.
 const LOG_TAIL_LINES: usize = 800;
@@ -147,7 +150,10 @@ pub(crate) fn open_shortcuts(window: &mut Window, cx: &mut App) {
                     ))
                     .child(shortcut_group(
                         t("Dialoge"),
-                        &[("Ctrl+Shift+L", t("Log anzeigen"))],
+                        &[
+                            ("Ctrl+K", t("API-Schlüssel bearbeiten")),
+                            ("Ctrl+Shift+L", t("Log anzeigen")),
+                        ],
                     )),
             )
             .footer(
@@ -368,6 +374,236 @@ impl Render for LogView {
 }
 
 // ---------------------------------------------------------------------------
+// API keys
+// ---------------------------------------------------------------------------
+
+/// The keys in the same order and grouping the GTK dialog uses:
+/// `(label, config field, belongs to the secondary group)`.
+const API_KEY_FIELDS: &[(&str, &str, bool)] = &[
+    ("DeepL", "deepl", false),
+    ("OpenAI", "openai", false),
+    ("Gemini", "gemini", false),
+    ("DeepSeek", "deepseek", false),
+    ("Groq", "groq", false),
+    ("OpenRouter", "openrouter", true),
+    ("Baidu App ID", "baidu_app_id", true),
+    ("Baidu Secret Key", "baidu_secret_key", true),
+    ("Caiyun Token", "caiyun_token", true),
+];
+
+pub(crate) fn open_api_keys(
+    theme: Theme,
+    keys: ApiKeys,
+    app: WeakEntity<MangaApp>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let dialog = cx.new(|cx| ApiKeysDialog::new(theme, keys, app, window, cx));
+
+    window.open_dialog(cx, move |shell, _window, _cx| {
+        let save = dialog.clone();
+        let confirm = dialog.clone();
+        shell
+            .title(t("API Schlüssel"))
+            .w(px(480.))
+            .child(dialog.clone())
+            // Enter is the dialog's default action; without this the shell
+            // would close and drop the edits.
+            .on_ok(move |_, window, cx| {
+                confirm.update(cx, |this, cx| this.save_all(window, cx));
+                true
+            })
+            .footer(div().flex().flex_row().justify_end().child(
+                widgets::primary_button("api-keys-save", t("Speichern")).on_click(
+                    move |_, window, cx| {
+                        save.update(cx, |this, cx| this.save_all(window, cx));
+                        window.close_dialog(cx);
+                    },
+                ),
+            ))
+    });
+}
+
+/// All nine keys as masked fields. Every edit goes straight into the shared
+/// config; the row button and the footer button only decide when it is
+/// written to disk, like the apply button and header button in GTK.
+struct ApiKeysDialog {
+    app: WeakEntity<MangaApp>,
+    fields: Vec<(&'static str, Entity<TextInput>)>,
+    fallback: Theme,
+}
+
+impl ApiKeysDialog {
+    fn new(
+        theme: Theme,
+        keys: ApiKeys,
+        app: WeakEntity<MangaApp>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let fields = API_KEY_FIELDS
+            .iter()
+            .map(|(label, field, _)| {
+                let value = keys.get_field(field).to_string();
+                let placeholder = (*label).to_string();
+                let input = cx.new(|cx| TextInput::new(cx, window, value, placeholder, true));
+                (*field, input)
+            })
+            .collect();
+
+        Self {
+            app,
+            fields,
+            fallback: theme,
+        }
+    }
+
+    fn theme(&self, cx: &App) -> Theme {
+        self.app
+            .upgrade()
+            .map(|app| app.read(cx).theme)
+            .unwrap_or(self.fallback)
+    }
+
+    /// Write one row without closing, so a single key can be saved in place.
+    fn save_one(&mut self, field: &'static str, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(input) = self
+            .fields
+            .iter()
+            .find(|(f, _)| *f == field)
+            .map(|(_, input)| input.clone())
+        else {
+            return;
+        };
+        let value = input.read(cx).value(cx);
+        self.commit(&[(field, value)], window, cx);
+    }
+
+    fn save_all(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let values: Vec<(&'static str, String)> = self
+            .fields
+            .iter()
+            .map(|(field, input)| (*field, input.read(cx).value(cx)))
+            .collect();
+
+        self.commit(&values, window, cx);
+    }
+
+    fn commit(
+        &mut self,
+        values: &[(&'static str, String)],
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(app) = self.app.upgrade() else {
+            return;
+        };
+        app.update(cx, |app, cx| {
+            for (field, value) in values {
+                app.config.api_keys.set_field(field, value);
+            }
+            app.config.save_api_keys();
+            // The settings panel keeps inline fields for the two VLM keys.
+            app.sync_inputs(window, cx);
+            cx.notify();
+        });
+    }
+}
+
+/// Green tick when the field holds something, amber warning when it is empty.
+fn status_mark(theme: Theme, has_key: bool) -> Div {
+    div()
+        .w(px(16.))
+        .text_center()
+        .text_size(px(FONT_BASE))
+        .text_color(if has_key {
+            theme.success
+        } else {
+            theme.warning
+        })
+        .child(if has_key { "✓" } else { "⚠" })
+}
+
+impl Render for ApiKeysDialog {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = self.theme(cx);
+        let mut primary = div().flex().flex_col().gap_2();
+        let mut secondary = div().flex().flex_col().gap_2();
+
+        for (label, field, is_secondary) in API_KEY_FIELDS {
+            let field = *field;
+            let Some(input) = self
+                .fields
+                .iter()
+                .find(|(f, _)| *f == field)
+                .map(|(_, input)| input.clone())
+            else {
+                continue;
+            };
+            let has_key = !input.read(cx).value(cx).trim().is_empty();
+
+            let row = div()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(
+                    div()
+                        .text_size(px(FONT_SM))
+                        .text_color(theme.text_muted)
+                        .child(*label),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap_2()
+                        .child(div().flex_1().child(input))
+                        .child(status_mark(theme, has_key))
+                        .child(
+                            widgets::button(
+                                ElementId::Name(format!("api-apply-{field}").into()),
+                                t("Übernehmen"),
+                            )
+                            .on_click(cx.listener(
+                                move |this, _: &ClickEvent, window, cx| {
+                                    this.save_one(field, window, cx);
+                                },
+                            )),
+                        ),
+                );
+
+            if *is_secondary {
+                secondary = secondary.child(row);
+            } else {
+                primary = primary.child(row);
+            }
+        }
+
+        div()
+            .id("api-keys-scroll")
+            .max_h(px(610.))
+            .overflow_y_scrollbar()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .child(widgets::section_header(theme, t("API Schlüssel")))
+            .child(caption(
+                t("Schlüssel für kostenpflichtige Übersetzungsdienste"),
+                theme.text_faint,
+            ))
+            .child(primary)
+            .child(widgets::section_header(theme, t("Weitere Dienste")))
+            .child(secondary)
+            .child(divider(theme))
+            .child(caption(
+                t("Hinweis: Die Schlüssel werden lokal gespeichert."),
+                theme.text_faint,
+            ))
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Accent colour
 // ---------------------------------------------------------------------------
 
@@ -517,10 +753,7 @@ impl Render for AccentPicker {
             .gap_3()
             .child(grid)
             .child(divider(theme))
-            .child(caption(
-                t("Eigene Farbe als #rrggbb"),
-                theme.text_muted,
-            ))
+            .child(caption(t("Eigene Farbe als #rrggbb"), theme.text_muted))
             .child(
                 div()
                     .flex()

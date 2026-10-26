@@ -1197,9 +1197,9 @@ impl Render for MangaApp {
                 "MangaApp"
             })
             .on_action(cx.listener(|this, _: &Reload, _window, cx| this.reload(cx)))
-            .on_action(cx.listener(|this, _: &OpenDirectory, window, cx| {
-                this.pick_folder(window, cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &OpenDirectory, window, cx| this.pick_folder(window, cx)),
+            )
             .on_action(cx.listener(|this, _: &GoUp, _window, cx| this.go_up(cx)))
             .on_action(cx.listener(|this, _: &Translate, _window, cx| this.start_translation(cx)))
             .on_action(cx.listener(|this, _: &CancelTranslation, _window, cx| {
@@ -1220,9 +1220,9 @@ impl Render for MangaApp {
             .on_action(
                 cx.listener(|this, _: &SelectAllFiles, _window, cx| this.select_all_files(cx)),
             )
-            .on_action(cx.listener(|this, _: &DeselectAllFiles, _window, cx| {
-                this.deselect_all_files(cx)
-            }))
+            .on_action(
+                cx.listener(|this, _: &DeselectAllFiles, _window, cx| this.deselect_all_files(cx)),
+            )
             .on_action(cx.listener(|_this, _: &ShowShortcuts, window, cx| {
                 crate::ui::dialogs::open_shortcuts(window, cx)
             }))
@@ -1232,9 +1232,18 @@ impl Render for MangaApp {
             .on_action(cx.listener(|this, _: &ShowAbout, window, cx| {
                 crate::ui::dialogs::open_about(this.theme, window, cx)
             }))
-            .on_drop(cx.listener(|this, paths: &ExternalPaths, _window, cx| {
-                this.handle_drop(paths, cx)
+            .on_action(cx.listener(|this, _: &ShowApiKeys, window, cx| {
+                crate::ui::dialogs::open_api_keys(
+                    this.theme,
+                    this.config.api_keys.clone(),
+                    cx.entity().downgrade(),
+                    window,
+                    cx,
+                )
             }))
+            .on_drop(
+                cx.listener(|this, paths: &ExternalPaths, _window, cx| this.handle_drop(paths, cx)),
+            )
             .child(self.render_header(cx))
             .child(body)
             .child(self.render_status_bar(cx))

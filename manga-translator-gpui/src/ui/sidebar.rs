@@ -69,7 +69,11 @@ impl MangaApp {
             )));
         }
 
-        actions = actions.child(menu_button(theme, cx.entity().downgrade()));
+        actions = actions.child(menu_button(
+            theme,
+            self.config.api_keys.clone(),
+            cx.entity().downgrade(),
+        ));
 
         div()
             .h(px(HEADER_H))
@@ -416,9 +420,13 @@ impl MangaApp {
 }
 
 /// Overflow menu: help and the log viewer.
-fn menu_button(theme: Theme, app: gpui::WeakEntity<MangaApp>) -> impl IntoElement {
-    use gpui::component::button::Button;
+fn menu_button(
+    theme: Theme,
+    keys: manga_translator_core::config::ApiKeys,
+    app: gpui::WeakEntity<MangaApp>,
+) -> impl IntoElement {
     use gpui::component::Sizable as _;
+    use gpui::component::button::Button;
 
     let app = app.clone();
     DropdownButton::new("btn-menu")
@@ -433,11 +441,19 @@ fn menu_button(theme: Theme, app: gpui::WeakEntity<MangaApp>) -> impl IntoElemen
                     .on_click(move |_, window, cx| dialogs::open_log(theme, window, cx)),
             )
             .item(PopupMenuItem::separator())
+            .item(PopupMenuItem::new(t("API Schlüssel")).on_click({
+                let app = app.clone();
+                let keys = keys.clone();
+                move |_, window, cx| {
+                    dialogs::open_api_keys(theme, keys.clone(), app.clone(), window, cx)
+                }
+            }))
             .item(PopupMenuItem::new(t("Akzentfarbe")).on_click({
                 let app = app.clone();
                 move |_, window, cx| dialogs::open_accent(theme, app.clone(), window, cx)
             }))
-            .item(PopupMenuItem::new(t("Über Manga Translator"))
+            .item(
+                PopupMenuItem::new(t("Über Manga Translator"))
                     .on_click(move |_, window, cx| dialogs::open_about(theme, window, cx)),
             )
         })

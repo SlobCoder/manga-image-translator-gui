@@ -74,6 +74,7 @@ fn key_bindings() -> Vec<KeyBinding> {
         KeyBinding::new("ctrl-a", SelectAllFiles, None),
         KeyBinding::new("ctrl-shift-a", DeselectAllFiles, None),
         KeyBinding::new("f1", ShowShortcuts, None),
+        KeyBinding::new("ctrl-k", ShowApiKeys, None),
         KeyBinding::new("ctrl-shift-l", ShowLog, None),
         KeyBinding::new("escape", CancelTranslation, None),
     ]
@@ -94,37 +95,37 @@ fn main() {
     gpui::application()
         .with_assets(gpui::assets::Assets)
         .run(move |cx: &mut App| {
-        gpui::init(cx);
-        cx.bind_keys(key_bindings());
+            gpui::init(cx);
+            cx.bind_keys(key_bindings());
 
-        // Give the component library the same palette the panels draw with.
-        theme::Theme::from_settings(&settings).apply_to_component_theme(cx);
+            // Give the component library the same palette the panels draw with.
+            theme::Theme::from_settings(&settings).apply_to_component_theme(cx);
 
-        // Optional CLI argument: the folder to open at startup.
-        let start_dir = std::env::args().nth(1).map(std::path::PathBuf::from);
+            // Optional CLI argument: the folder to open at startup.
+            let start_dir = std::env::args().nth(1).map(std::path::PathBuf::from);
 
-        // Restore the window geometry remembered by either frontend.
-        let width = settings.window_width.max(980) as f32;
-        let height = settings.window_height.max(620) as f32;
-        let bounds = gpui::Bounds::centered(None, size(px(width), px(height)), cx);
+            // Restore the window geometry remembered by either frontend.
+            let width = settings.window_width.max(980) as f32;
+            let height = settings.window_height.max(620) as f32;
+            let bounds = gpui::Bounds::centered(None, size(px(width), px(height)), cx);
 
-        gpui::open_window(
-            WindowOptions {
-                window_bounds: Some(WindowBounds::Windowed(bounds)),
-                window_min_size: Some(size(px(980.), px(620.))),
-                titlebar: Some(TitlebarOptions {
-                    title: Some("Manga Translator".into()),
-                    appears_transparent: false,
-                    traffic_light_position: None,
-                }),
-                app_id: Some("com.mangatranslator.gpui".into()),
-                ..Default::default()
-            },
-            cx,
-            |window, cx| cx.new(move |cx| app::MangaApp::new(cx, window, start_dir.clone())),
-        )
-        .expect("failed to open the main window");
+            gpui::open_window(
+                WindowOptions {
+                    window_bounds: Some(WindowBounds::Windowed(bounds)),
+                    window_min_size: Some(size(px(980.), px(620.))),
+                    titlebar: Some(TitlebarOptions {
+                        title: Some("Manga Translator".into()),
+                        appears_transparent: false,
+                        traffic_light_position: None,
+                    }),
+                    app_id: Some("com.mangatranslator.gpui".into()),
+                    ..Default::default()
+                },
+                cx,
+                |window, cx| cx.new(move |cx| app::MangaApp::new(cx, window, start_dir.clone())),
+            )
+            .expect("failed to open the main window");
 
-        cx.activate(true);
-    });
+            cx.activate(true);
+        });
 }

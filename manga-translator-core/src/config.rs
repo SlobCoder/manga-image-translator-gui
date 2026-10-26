@@ -151,6 +151,45 @@ pub struct ApiKeys {
     pub caiyun_token: String,
 }
 
+impl ApiKeys {
+    /// Read one key by the field name the settings and the dialog use.
+    ///
+    /// Unknown names return an empty string, matching a key that was never
+    /// configured.
+    pub fn get_field(&self, field: &str) -> &str {
+        match field {
+            "deepl" => &self.deepl,
+            "openai" => &self.openai,
+            "gemini" => &self.gemini,
+            "deepseek" => &self.deepseek,
+            "groq" => &self.groq,
+            "openrouter" => &self.openrouter,
+            "baidu_app_id" => &self.baidu_app_id,
+            "baidu_secret_key" => &self.baidu_secret_key,
+            "caiyun_token" => &self.caiyun_token,
+            _ => "",
+        }
+    }
+
+    /// Write one key. Returns `false` for an unknown field, so a typo in a
+    /// dialog cannot silently discard the edit.
+    pub fn set_field(&mut self, field: &str, value: &str) -> bool {
+        match field {
+            "deepl" => self.deepl = value.to_string(),
+            "openai" => self.openai = value.to_string(),
+            "gemini" => self.gemini = value.to_string(),
+            "deepseek" => self.deepseek = value.to_string(),
+            "groq" => self.groq = value.to_string(),
+            "openrouter" => self.openrouter = value.to_string(),
+            "baidu_app_id" => self.baidu_app_id = value.to_string(),
+            "baidu_secret_key" => self.baidu_secret_key = value.to_string(),
+            "caiyun_token" => self.caiyun_token = value.to_string(),
+            _ => return false,
+        }
+        true
+    }
+}
+
 /// Services that require API keys, mapped to their dropdown index.
 #[allow(dead_code)]
 pub fn api_required_services() -> HashMap<usize, &'static str> {
@@ -806,4 +845,37 @@ pub mod options {
         "BF16 (Schnell, Standard)",
     ];
     pub const INPAINTING_PRECISION_MAP: &[&str] = &["fp32", "fp16", "bf16"];
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ApiKeys;
+
+    const FIELDS: &[&str] = &[
+        "deepl",
+        "openai",
+        "gemini",
+        "deepseek",
+        "groq",
+        "openrouter",
+        "baidu_app_id",
+        "baidu_secret_key",
+        "caiyun_token",
+    ];
+
+    #[test]
+    fn every_api_key_field_round_trips() {
+        let mut keys = ApiKeys::default();
+        for field in FIELDS {
+            assert!(keys.set_field(field, field), "{field} is not a known field");
+            assert_eq!(keys.get_field(field), *field);
+        }
+    }
+
+    #[test]
+    fn unknown_api_key_field_is_rejected() {
+        let mut keys = ApiKeys::default();
+        assert!(!keys.set_field("nope", "x"));
+        assert_eq!(keys.get_field("nope"), "");
+    }
 }

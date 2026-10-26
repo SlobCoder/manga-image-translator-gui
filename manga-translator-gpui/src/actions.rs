@@ -20,5 +20,6 @@ actions!(
         ShowShortcuts,
         ShowLog,
         ShowAbout,
+        ShowApiKeys,
     ]
 );
