@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Settings sidebar as an overlay split view** — the settings pane and the
+  preview now live in an `AdwOverlaySplitView`. Above 900 px window width the
+  sidebar is pinned next to the preview; below, it collapses and slides in as
+  an overlay (header button, F9, or a swipe). The draggable divider between
+  settings and preview is gone — the sidebar is 420–560 px wide — while the
+  file-browser divider keeps its spring animation and persisted width.
 - **Search in the OpenRouter popup** — a search field above the sort bar
   filters the model list by id or display name while typing; the filter is
   cleared when the popup closes.

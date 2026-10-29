@@ -28,14 +28,6 @@ const STIFFNESS: f64 = 260.0;
 /// Samples older than this are not used to carry velocity into a new spring.
 const VELOCITY_MAX_AGE_US: i64 = 50_000;
 
-/// Window after a spring settles in which position changes are still ignored
-/// by the caller's persistence.
-///
-/// Restoring the paned's minimum-width constraints re-runs the layout, and GTK
-/// then clamps the divider once more - usually within a frame, but always after
-/// the animation reported completion.
-const SETTLE_GRACE_US: i64 = 150_000;
-
 /// Last two applied values with their timestamps, in microseconds.
 ///
 /// A retarget can then start with the velocity the divider currently has, so
@@ -75,8 +67,6 @@ pub struct SpringPaned {
     samples: Rc<RefCell<SampleHistory>>,
     /// Callback of the running spring, run once when it ends or is cancelled.
     pending: Rc<RefCell<Option<SettleCallback>>>,
-    /// When the last spring ended, in microseconds.
-    settled_at: Rc<Cell<i64>>,
 }
 
 impl SpringPaned {
@@ -87,7 +77,6 @@ impl SpringPaned {
             animating: Rc::new(Cell::new(false)),
             samples: Rc::new(RefCell::new(SampleHistory::default())),
             pending: Rc::new(RefCell::new(None)),
-            settled_at: Rc::new(Cell::new(0)),
         })
     }
 
@@ -97,20 +86,6 @@ impl SpringPaned {
     /// skipped, otherwise a collapse animation would store width 0.
     pub fn is_animating(&self) -> bool {
         self.animating.get()
-    }
-
-    /// Whether a spring settled so recently that the layout is still catching up.
-    pub fn is_settling(&self) -> bool {
-        glib::monotonic_time() - self.settled_at.get() < SETTLE_GRACE_US
-    }
-
-    /// Enter the persistence guard without starting a spring yet.
-    ///
-    /// Preparing a transition can move the divider synchronously (hiding or
-    /// showing a paned child re-clamps its position), and that value must not
-    /// reach the settings file either.
-    pub fn begin_transition(&self) {
-        self.animating.set(true);
     }
 
     /// Spring the divider to *target* and run *settled* once it ends.
@@ -125,8 +100,6 @@ impl SpringPaned {
     pub fn animate_to(&self, target: i32, overshoot: bool, settled: impl Fn() + 'static) {
         // Cancelling first also runs the previous callback, so caller
         // bookkeeping (relaxed minimum widths, for example) is not lost. Only do
-        // it when something is actually running: `finish` clears the guard that
-        // `begin_transition` set for the preparation phase.
         if self.animation.borrow().is_some() || self.pending.borrow().is_some() {
             self.finish();
         }
@@ -167,13 +140,11 @@ impl SpringPaned {
         {
             let pending = self.pending.clone();
             let animating = self.animating.clone();
-            let settled_at = self.settled_at.clone();
             animation.connect_done(move |_| {
                 if let Some(callback) = pending.borrow_mut().take() {
                     callback();
                 }
                 animating.set(false);
-                settled_at.set(glib::monotonic_time());
             });
         }
         animation.play();
@@ -195,15 +166,6 @@ impl SpringPaned {
         self.finish();
     }
 
-    /// Stop the current spring and run its pending callback.
-    ///
-    /// Call this *before* preparing a new transition: the callback may undo
-    /// layout changes (re-showing a collapsed panel, for instance) that the
-    /// new transition is about to make.
-    pub fn cancel(&self) {
-        self.finish();
-    }
-
     /// Drop the animation and run the pending callback exactly once.
     fn finish(&self) {
         if let Some(animation) = self.animation.borrow_mut().take() {
@@ -214,7 +176,6 @@ impl SpringPaned {
             pending();
         }
         self.animating.set(false);
-        self.settled_at.set(glib::monotonic_time());
     }
 
     /// Double-clicking the divider springs back to *default_position*, then

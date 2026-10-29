@@ -9,6 +9,7 @@ use gtk::gdk::Display;
 use gtk::gio;
 use gtk::glib;
 use gtk::glib::clone;
+use gtk::glib::value::ToValue;
 use std::cell::{Cell, RefCell};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -50,15 +51,6 @@ pub struct WindowState {
     pub accent_css_provider: Option<gtk::CssProvider>,
     /// CSS provider pinning the light surfaces while the user forces light mode.
     pub scheme_css_provider: Option<gtk::CssProvider>,
-    /// Whether the settings panel is expanded (F9). Tracked separately from
-    /// visibility so a second F9 during the collapse animation expands again.
-    pub settings_panel_expanded: bool,
-    /// Width to restore when the settings panel expands again.
-    ///
-    /// `GtkPaned` clamps the divider when the window is too narrow, and the
-    /// clamped value also ends up in the settings file. Remembering the width
-    /// at collapse time keeps F9 from restoring a stale value.
-    pub settings_panel_width: i32,
     /// Error count for log button indicator.
     pub error_count: u32,
     /// Whether the log dialog is currently open.
@@ -92,12 +84,12 @@ pub(crate) struct Widgets {
     btn_refresh: gtk::Button,
     #[allow(dead_code)]
     main_paned: gtk::Paned,
-    #[allow(dead_code)]
-    right_paned: gtk::Paned,
-    /// Spring animations for the two dividers.
+    /// Settings sidebar + preview; collapses the sidebar to an overlay on
+    /// narrow windows.
+    settings_split: adw::OverlaySplitView,
+    /// Spring animation for the file-browser divider.
     #[allow(dead_code)]
     main_split: Rc<SpringPaned>,
-    right_split: Rc<SpringPaned>,
     toast_overlay: adw::ToastOverlay,
     #[allow(dead_code)]
     search_entry: gtk::SearchEntry,
@@ -129,7 +121,6 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
     let config = Rc::new(RefCell::new(ConfigManager::new()));
 
     // ── Shared mutable state ────────────────────────────────────────────
-    let initial_settings_width = config.borrow().settings.right_paned_position;
     let state = Rc::new(RefCell::new(WindowState {
         config: config.clone(),
         bridge: Arc::new(IpcBridge::new()),
@@ -141,8 +132,6 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
         accent_color: "system".to_string(),
         accent_css_provider: None,
         scheme_css_provider: None,
-        settings_panel_expanded: true,
-        settings_panel_width: initial_settings_width,
         error_count: 0,
         log_dialog_open: false,
         log_entries: Rc::new(RefCell::new(Vec::new())),
@@ -177,7 +166,7 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
     toolbar_view.set_top_bar_style(adw::ToolbarStyle::Flat);
 
     // ── Header bar ──────────────────────────────────────────────────────
-    let path_label = build_header_bar(&toolbar_view, &state);
+    let (path_label, header) = build_header_bar(&toolbar_view, &state);
 
     // ── Create key widgets ──────────────────────────────────────────────
     let file_browser = FileBrowser::new();
@@ -308,9 +297,8 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
     let settings_widget = settings_panel.clone();
     settings_widget.set_size_request(250, -1);
 
-    // ── Main content (Paned) ────────────────────────────────────────────
+    // ── Main content ────────────────────────────────────────────────────
     let paned_pos = config.borrow().settings.paned_position;
-    let right_paned_pos = config.borrow().settings.right_paned_position;
 
     let main_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
     main_paned.set_vexpand(true);
@@ -319,20 +307,44 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
     main_paned.set_shrink_end_child(false);
     main_paned.set_start_child(Some(&left_pane));
 
-    let right_paned = gtk::Paned::new(gtk::Orientation::Horizontal);
-    right_paned.set_position(right_paned_pos);
-    right_paned.set_shrink_start_child(false);
-    right_paned.set_shrink_end_child(false);
-    right_paned.set_start_child(Some(&settings_widget));
-    right_paned.set_end_child(Some(&preview_pane));
+    // Settings sidebar + preview. Wide windows show them side by side; below
+    // the breakpoint the sidebar collapses and can be opened as an overlay.
+    let settings_split = adw::OverlaySplitView::builder()
+        .sidebar(&settings_widget)
+        .content(&preview_pane)
+        .sidebar_position(gtk::PackType::Start)
+        .min_sidebar_width(420.0)
+        .max_sidebar_width(560.0)
+        .sidebar_width_fraction(0.35)
+        .enable_show_gesture(true)
+        .enable_hide_gesture(true)
+        .build();
 
-    main_paned.set_end_child(Some(&right_paned));
+    main_paned.set_end_child(Some(&settings_split));
     toolbar_view.set_content(Some(&main_paned));
 
-    // Spring-animated dividers. Dragging stays native and 1:1; the springs are
-    // used for the F9 toggle and the double-click reset.
+    // Collapse the settings sidebar instead of squeezing the preview.
+    let breakpoint = adw::Breakpoint::new(
+        adw::BreakpointCondition::parse("max-width: 900px").expect("valid breakpoint condition"),
+    );
+    breakpoint.add_setter(&settings_split, "collapsed", Some(&true.to_value()));
+    window.add_breakpoint(breakpoint);
+
+    // Header toggle for the sidebar; when collapsed it opens the overlay.
+    let settings_toggle = gtk::ToggleButton::new();
+    settings_toggle.set_icon_name("sidebar-show-symbolic");
+    settings_toggle.set_tooltip_text(Some(&i18n::t("Einstellungen")));
+    i18n::register_tooltip(&settings_toggle, "Einstellungen");
+    settings_split
+        .bind_property("show-sidebar", &settings_toggle, "active")
+        .bidirectional()
+        .sync_create()
+        .build();
+    header.pack_start(&settings_toggle);
+
+    // Spring-animated file-browser divider. Dragging stays native and 1:1; the
+    // spring is used for the double-click reset.
     let main_split = SpringPaned::new(&main_paned);
-    let right_split = SpringPaned::new(&right_paned);
     {
         let defaults = config::Settings::default();
         let cfg = config.clone();
@@ -340,16 +352,11 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
             cfg.borrow_mut().settings.paned_position = width;
             cfg.borrow().save_settings();
         });
-        let cfg = config.clone();
-        right_split.enable_double_click_reset(defaults.right_paned_position, move |width| {
-            cfg.borrow_mut().settings.right_paned_position = width;
-            cfg.borrow().save_settings();
-        });
     }
 
-    // Track paned positions for persistence. Values produced by a running
-    // spring are skipped: the animation settles at its target and the caller
-    // persists that once.
+    // Track the file-browser divider for persistence. Values produced by a
+    // running spring are skipped: the animation settles at its target and the
+    // caller persists that once.
     {
         let cfg = config.clone();
         let split = main_split.clone();
@@ -359,30 +366,6 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
                 return;
             }
             cfg.borrow_mut().settings.paned_position = paned.position();
-            cfg.borrow().save_settings();
-        });
-    }
-    {
-        let cfg = config.clone();
-        let width_state = state.clone();
-        let split = right_split.clone();
-        // While the panel is collapsed the divider position means nothing:
-        // GtkPaned re-clamps it when the child is hidden or shown, and those
-        // values must not overwrite the width to restore.
-        let panel = settings_panel.downgrade();
-        right_paned.connect_notify_local(Some("position"), move |paned, _| {
-            split.cancel_if_external(paned.position());
-            if split.is_animating() || split.is_settling() {
-                return;
-            }
-            if panel.upgrade().is_none_or(|p| !p.is_visible()) {
-                return;
-            }
-            let width = paned.position();
-            if width > SETTINGS_MIN_WIDTH {
-                width_state.borrow_mut().settings_panel_width = width;
-            }
-            cfg.borrow_mut().settings.right_paned_position = width;
             cfg.borrow().save_settings();
         });
     }
@@ -421,9 +404,8 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
         btn_home: btn_breadcrumb_home.clone(),
         btn_refresh: btn_breadcrumb_refresh.clone(),
         main_paned,
-        right_paned,
+        settings_split,
         main_split,
-        right_split,
         toast_overlay,
         search_entry,
         alive,
@@ -528,7 +510,7 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
 fn build_header_bar(
     toolbar_view: &adw::ToolbarView,
     _state: &Rc<RefCell<WindowState>>,
-) -> gtk::Label {
+) -> (gtk::Label, adw::HeaderBar) {
     let header = adw::HeaderBar::new();
 
     // ── Path label (center) ─────────────────────────────────────────────
@@ -561,7 +543,7 @@ fn build_header_bar(
     header.pack_end(&menu_button);
     toolbar_view.add_top_bar(&header);
 
-    path_label
+    (path_label, header)
 }
 
 // ---------------------------------------------------------------------------
@@ -1282,10 +1264,8 @@ fn install_actions(
     toggle_settings_action.connect_activate(clone!(
         #[strong]
         widgets,
-        #[strong]
-        state,
         move |_, _| {
-            toggle_settings_panel(&widgets, &state);
+            toggle_settings_panel(&widgets);
         }
     ));
     window.add_action(&toggle_settings_action);
@@ -1846,76 +1826,13 @@ fn start_translation(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowSt
 // Settings panel toggle
 // ---------------------------------------------------------------------------
 
-/// Width request of the settings panel while it is open.
-const SETTINGS_MIN_WIDTH: i32 = 250;
-
-/// F9: collapse or expand the settings panel with a spring.
+/// F9: show or hide the settings sidebar.
 ///
-/// `GtkPaned` will not shrink a child below its minimum width, so the width
-/// request and the paned's shrink flag are relaxed for the duration of the
-/// animation and restored when it settles. Without that the panel would stop
-/// at 250 px and jump the rest of the way.
-fn toggle_settings_panel(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowState>>) {
-    // Settle any running spring first: its callback may hide or show the panel,
-    // which would fight the transition prepared below.
-    widgets.borrow().right_split.cancel();
-
-    let expanded = {
-        let mut s = state.borrow_mut();
-        s.settings_panel_expanded = !s.settings_panel_expanded;
-        s.settings_panel_expanded
-    };
-
-    let (panel, paned, split) = {
-        let w = widgets.borrow();
-        (
-            w.settings_panel.clone(),
-            w.right_paned.clone(),
-            w.right_split.clone(),
-        )
-    };
-
-    // The width to restore comes from the last settled value, never from
-    // `paned.position()`: a rapid second F9 would sample a divider that is
-    // still moving and remember that intermediate width instead.
-    let target_width = state.borrow().settings_panel_width.max(SETTINGS_MIN_WIDTH);
-
-    // Let the paned shrink the panel below its own minimum while it moves.
-    // Showing or hiding the panel re-clamps the divider, so the guard has to
-    // cover the preparation as well as the spring.
-    split.begin_transition();
-    panel.set_size_request(0, -1);
-    paned.set_shrink_start_child(true);
-
-    if expanded {
-        panel.set_visible(true);
-        {
-            let cfg = state.borrow().config.clone();
-            cfg.borrow_mut().settings.right_paned_position = target_width;
-            cfg.borrow().save_settings();
-        }
-
-        let panel = panel.clone();
-        let paned = paned.clone();
-        split.animate_to(target_width, true, move || {
-            panel.set_size_request(SETTINGS_MIN_WIDTH, -1);
-            paned.set_shrink_start_child(false);
-        });
-    } else {
-        {
-            let cfg = state.borrow().config.clone();
-            cfg.borrow_mut().settings.right_paned_position = target_width;
-            cfg.borrow().save_settings();
-        }
-
-        let panel = panel.clone();
-        let paned = paned.clone();
-        split.animate_to(0, false, move || {
-            panel.set_visible(false);
-            panel.set_size_request(SETTINGS_MIN_WIDTH, -1);
-            paned.set_shrink_start_child(false);
-        });
-    }
+/// With `AdwOverlaySplitView` this is a single property: on wide windows the
+/// sidebar sits next to the preview, on narrow ones it slides in as an overlay.
+fn toggle_settings_panel(widgets: &Rc<RefCell<Widgets>>) {
+    let split = widgets.borrow().settings_split.clone();
+    split.set_show_sidebar(!split.shows_sidebar());
 }
 
 // ---------------------------------------------------------------------------
