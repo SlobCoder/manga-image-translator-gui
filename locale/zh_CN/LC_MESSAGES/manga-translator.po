@@ -752,3 +752,9 @@ msgstr "免费"
 
 msgid "nicht bewertet"
 msgstr "未评分"
+
+msgid "Modell suchen"
+msgstr "搜索模型"
+
+msgid "Einstellungen"
+msgstr "设置"

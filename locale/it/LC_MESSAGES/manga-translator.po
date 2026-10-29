@@ -752,3 +752,9 @@ msgstr "Gratuito"
 
 msgid "nicht bewertet"
 msgstr "non valutato"
+
+msgid "Modell suchen"
+msgstr "Cerca modelli"
+
+msgid "Einstellungen"
+msgstr "Impostazioni"

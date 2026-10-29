@@ -752,3 +752,9 @@ msgstr "無料"
 
 msgid "nicht bewertet"
 msgstr "未評価"
+
+msgid "Modell suchen"
+msgstr "モデルを検索"
+
+msgid "Einstellungen"
+msgstr "設定"

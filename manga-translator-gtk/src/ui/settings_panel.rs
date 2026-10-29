@@ -237,6 +237,8 @@ pub struct SettingsPanelPrivate {
     /// Popup with the sort bar and the scrollable model list.
     openrouter_popover: RefCell<Option<gtk::Popover>>,
     openrouter_list: RefCell<Option<gtk::ListBox>>,
+    /// Search field above the popup list.
+    openrouter_search: RefCell<Option<gtk::SearchEntry>>,
     /// Side panel in the popup with the selected model's numbers.
     openrouter_details_title: RefCell<Option<gtk::Label>>,
     openrouter_details_input: RefCell<Option<gtk::Label>>,
@@ -321,6 +323,7 @@ impl Default for SettingsPanelPrivate {
             openrouter_value_label: RefCell::new(None),
             openrouter_popover: RefCell::new(None),
             openrouter_list: RefCell::new(None),
+            openrouter_search: RefCell::new(None),
             openrouter_details_title: RefCell::new(None),
             openrouter_details_input: RefCell::new(None),
             openrouter_details_output: RefCell::new(None),
@@ -669,6 +672,35 @@ impl SettingsPanelPrivate {
         openrouter_popover.add_css_class("menu");
         openrouter_popover.set_parent(&openrouter_model_row);
 
+        let openrouter_search = gtk::SearchEntry::new();
+        openrouter_search.set_placeholder_text(Some(&i18n::t("Modell suchen")));
+        openrouter_search.set_margin_top(9);
+        openrouter_search.set_margin_start(9);
+        openrouter_search.set_margin_end(9);
+        i18n::register_search_placeholder(&openrouter_search, "Modell suchen");
+        openrouter_search.connect_search_changed(clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |entry| {
+                this.filter_openrouter_list(&entry.text());
+            }
+        ));
+        openrouter_search.connect_stop_search(clone!(
+            #[weak]
+            openrouter_search,
+            move |_| {
+                openrouter_search.set_text("");
+            }
+        ));
+        // A stale filter would hide the list the next time the popup opens.
+        openrouter_popover.connect_closed(clone!(
+            #[weak]
+            openrouter_search,
+            move |_| {
+                openrouter_search.set_text("");
+            }
+        ));
+
         // Sort bar. It sits above the scrolled window, not inside it, so it
         // stays in place while the list scrolls.
         let sort_bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
@@ -749,6 +781,7 @@ impl SettingsPanelPrivate {
         content_box.append(&details_panel);
 
         let popover_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        popover_box.append(&openrouter_search);
         popover_box.append(&sort_bar);
         popover_box.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
         popover_box.append(&content_box);
@@ -1590,6 +1623,7 @@ impl SettingsPanelPrivate {
         *self.openrouter_value_label.borrow_mut() = Some(openrouter_value_label);
         *self.openrouter_popover.borrow_mut() = Some(openrouter_popover);
         *self.openrouter_list.borrow_mut() = Some(openrouter_list);
+        *self.openrouter_search.borrow_mut() = Some(openrouter_search);
         *self.openrouter_details_title.borrow_mut() = Some(openrouter_details_title);
         *self.openrouter_details_input.borrow_mut() = Some(openrouter_details_input);
         *self.openrouter_details_output.borrow_mut() = Some(openrouter_details_output);
@@ -2051,6 +2085,40 @@ impl SettingsPanelPrivate {
 
         self.update_openrouter_details(index);
         self.update_openrouter_value_label();
+
+        // A filter stays active when the list is rebuilt (sort or fetch).
+        if let Some(search) = self.openrouter_search.borrow().as_ref() {
+            self.filter_openrouter_list(&search.text());
+        }
+    }
+
+    /// Show only the rows whose id or name contains *query*.
+    fn filter_openrouter_list(&self, query: &str) {
+        let query = query.trim().to_lowercase();
+
+        let list = self.openrouter_list.borrow().clone();
+        let Some(list) = list else {
+            return;
+        };
+
+        let models = self.openrouter_models.borrow();
+        let mut child = list.first_child();
+        let mut index = 0usize;
+        while let Some(widget) = child {
+            if let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() {
+                let matches = match models.get(index) {
+                    Some(model) if !query.is_empty() => {
+                        model.id.to_lowercase().contains(&query)
+                            || model.name.to_lowercase().contains(&query)
+                    }
+                    Some(_) => true,
+                    None => false,
+                };
+                row.set_visible(matches);
+                index += 1;
+            }
+            child = widget.next_sibling();
+        }
     }
 
     /// Write the selected model id onto the row.

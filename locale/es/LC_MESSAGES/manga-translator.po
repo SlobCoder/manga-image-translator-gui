@@ -752,3 +752,9 @@ msgstr "Gratis"
 
 msgid "nicht bewertet"
 msgstr "sin valorar"
+
+msgid "Modell suchen"
+msgstr "Buscar modelos"
+
+msgid "Einstellungen"
+msgstr "Ajustes"

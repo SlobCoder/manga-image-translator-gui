@@ -575,3 +575,9 @@ msgstr "Kostenlos"
 
 msgid "nicht bewertet"
 msgstr "nicht bewertet"
+
+msgid "Modell suchen"
+msgstr "Modell suchen"
+
+msgid "Einstellungen"
+msgstr "Einstellungen"

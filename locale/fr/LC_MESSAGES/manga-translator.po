@@ -752,3 +752,9 @@ msgstr "Gratuit"
 
 msgid "nicht bewertet"
 msgstr "non évalué"
+
+msgid "Modell suchen"
+msgstr "Rechercher un modèle"
+
+msgid "Einstellungen"
+msgstr "Paramètres"

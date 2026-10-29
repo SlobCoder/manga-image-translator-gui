@@ -752,3 +752,9 @@ msgstr "무료"
 
 msgid "nicht bewertet"
 msgstr "평가되지 않음"
+
+msgid "Modell suchen"
+msgstr "모델 검색"
+
+msgid "Einstellungen"
+msgstr "설정"

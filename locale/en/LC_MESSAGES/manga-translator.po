@@ -752,3 +752,9 @@ msgstr "Free"
 
 msgid "nicht bewertet"
 msgstr "not rated"
+
+msgid "Modell suchen"
+msgstr "Search models"
+
+msgid "Einstellungen"
+msgstr "Settings"

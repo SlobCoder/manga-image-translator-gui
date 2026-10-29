@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Search in the OpenRouter popup** — a search field above the sort bar
+  filters the model list by id or display name while typing; the filter is
+  cleared when the popup closes.
 - **Model details in the OpenRouter popup** — a sidebar next to the list shows
   the input price, output price (both per 1M tokens) and the Artificial
   Analysis intelligence index of the model under the pointer. Free models and
