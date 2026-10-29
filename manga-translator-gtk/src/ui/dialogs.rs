@@ -97,6 +97,7 @@ pub fn show_shortcuts_dialog(window: &adw::ApplicationWindow) {
             ("Ctrl+T", &i18n::t("Übersetzen")),
             ("Escape", &i18n::t("Übersetzung abbrechen")),
             ("Ctrl+K", &i18n::t("API Schlüssel")),
+            ("F8", &i18n::t("Datei-Browser ein-/ausblenden")),
             ("F9", &i18n::t("Einstellungen ein-/ausblenden")),
         ],
     );

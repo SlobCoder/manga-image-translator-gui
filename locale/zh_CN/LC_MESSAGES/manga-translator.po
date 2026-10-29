@@ -758,3 +758,9 @@ msgstr "搜索模型"
 
 msgid "Einstellungen"
 msgstr "设置"
+
+msgid "Datei-Browser"
+msgstr "文件浏览器"
+
+msgid "Datei-Browser ein-/ausblenden"
+msgstr "显示/隐藏文件浏览器"

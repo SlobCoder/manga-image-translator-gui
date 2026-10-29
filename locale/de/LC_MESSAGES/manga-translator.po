@@ -581,3 +581,9 @@ msgstr "Modell suchen"
 
 msgid "Einstellungen"
 msgstr "Einstellungen"
+
+msgid "Datei-Browser"
+msgstr "Datei-Browser"
+
+msgid "Datei-Browser ein-/ausblenden"
+msgstr "Datei-Browser ein-/ausblenden"
