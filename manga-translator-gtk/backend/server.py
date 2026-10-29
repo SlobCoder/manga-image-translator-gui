@@ -509,12 +509,55 @@ def handle_get_cached_translation(params: dict) -> Optional[str]:
     return None
 
 
-def handle_fetch_openrouter_models(params: dict) -> list:
-    """Fetch vision-capable models from the OpenRouter API."""
-    from manga_translator.vlm.mtpe import fetch_openrouter_models
+OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
-    api_key = params.get("api_key", "")
-    return fetch_openrouter_models(api_key)
+
+def handle_fetch_openrouter_models(params: dict) -> list:
+    """Fetch the current vision-capable models from the OpenRouter API.
+
+    The request is made here with the standard library rather than through
+    ``manga_translator.vlm.mtpe.fetch_openrouter_models``: that module only
+    exists in newer upstream checkouts, so on older installs the import failed
+    and the GUI silently kept showing its cached (outdated) model list.
+
+    Returns a list of ``{"id": ..., "name": ...}`` dicts sorted by id.
+    """
+    import urllib.request
+    import urllib.error
+
+    api_key = (params.get("api_key") or "").strip()
+
+    request = urllib.request.Request(
+        OPENROUTER_MODELS_URL,
+        headers={"Accept": "application/json"},
+    )
+    if api_key:
+        request.add_header("Authorization", f"Bearer {api_key}")
+
+    try:
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.load(response)
+    except (urllib.error.URLError, OSError) as exc:
+        raise RuntimeError(f"OpenRouter request failed: {exc}") from exc
+
+    models = []
+    for entry in payload.get("data", []):
+        model_id = entry.get("id")
+        if not model_id:
+            continue
+
+        architecture = entry.get("architecture") or {}
+        modalities = architecture.get("input_modalities") or []
+        # Older payloads only carry `modality`, e.g. "text+image->text".
+        modality = architecture.get("modality") or ""
+        if "image" not in modalities and "image" not in modality:
+            continue
+
+        models.append({"id": model_id, "name": entry.get("name") or model_id})
+
+    models.sort(key=lambda model: model["id"])
+    logger.info("Fetched %d vision-capable models from OpenRouter", len(models))
+    return models
 
 
 # ---------------------------------------------------------------------------
