@@ -241,6 +241,52 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
         });
     }
 
+    // ── Wire up Gemini model fetch callback ────────────────────────────
+    //
+    // Uses the Gemini API when the configured key is accepted; the backend
+    // falls back to the public OpenRouter catalogue otherwise.
+    {
+        let bridge = state.borrow().bridge.clone();
+        let config_clone = config.clone();
+        let sp = settings_panel.clone();
+
+        settings_panel.set_on_fetch_gemini_models(move || {
+            let api_key = config_clone.borrow().api_keys.gemini.clone();
+
+            let bridge = bridge.clone();
+            let sp = sp.clone();
+
+            sp.set_gemini_fetching(true);
+
+            let (tx, rx) = async_channel::bounded::<Vec<String>>(1);
+
+            std::thread::spawn(move || {
+                let models = match bridge.fetch_gemini_models(&api_key) {
+                    Ok(models) => {
+                        if models.is_empty() {
+                            log::warn!("Gemini returned no models");
+                        } else {
+                            log::info!("Fetched {} Gemini models", models.len());
+                        }
+                        models
+                    }
+                    Err(e) => {
+                        log::error!("Failed to fetch Gemini models: {}", e);
+                        Vec::new()
+                    }
+                };
+                // Always send so the UI can clear its loading state
+                let _ = tx.send_blocking(models);
+            });
+
+            glib::spawn_future_local(async move {
+                if let Ok(models) = rx.recv().await {
+                    sp.update_gemini_models(&models);
+                }
+            });
+        });
+    }
+
     // ── File browser area (search + buttons + browser + sort) ───────────
     let (
         left_pane,

@@ -341,6 +341,10 @@ pub struct Settings {
     #[serde(default = "default_openrouter_model_cache")]
     pub openrouter_model_cache: Vec<String>,
 
+    /// Cached Gemini model list (fetched from the API, newest first).
+    #[serde(default = "default_gemini_models")]
+    pub gemini_models: Vec<String>,
+
     /// Cached OpenRouter model metadata (price and intelligence score), used
     /// to sort the model popup without a network round-trip.
     #[serde(default)]
@@ -468,6 +472,13 @@ fn default_openrouter_model_cache() -> Vec<String> {
 fn default_openrouter_sort() -> String {
     "id".into()
 }
+
+fn default_gemini_models() -> Vec<String> {
+    options::GEMINI_MODELS
+        .iter()
+        .map(|m| m.to_string())
+        .collect()
+}
 fn default_upscale_ratio() -> u32 {
     2
 }
@@ -545,6 +556,7 @@ impl Default for Settings {
             virtual_env_path: String::new(),
             manga_translator_path: String::new(),
             openrouter_model_cache: default_openrouter_model_cache(),
+            gemini_models: default_gemini_models(),
             openrouter_model_meta: Vec::new(),
             openrouter_sort: default_openrouter_sort(),
             upscale_ratio: default_upscale_ratio(),

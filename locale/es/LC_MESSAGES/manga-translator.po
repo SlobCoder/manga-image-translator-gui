@@ -731,3 +731,9 @@ msgstr "Inteligencia ↑"
 
 msgid "Intelligenz ↓"
 msgstr "Inteligencia ↓"
+
+msgid "Gemini-Modelle aktualisieren"
+msgstr "Actualizar modelos Gemini"
+
+msgid "Modelle von der Gemini API laden"
+msgstr "Cargar modelos desde la API de Gemini"

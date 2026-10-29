@@ -963,6 +963,27 @@ impl IpcBridge {
     }
 
     // -----------------------------------------------------------------------
+    // Public API — Gemini
+    // -----------------------------------------------------------------------
+
+    /// Fetch the current Gemini model ids from the backend.
+    #[cfg_attr(feature = "hotpath", hotpath::measure)]
+    pub fn fetch_gemini_models(&self, api_key: &str) -> BridgeResult<Vec<String>> {
+        self.ensure_initialized()?;
+
+        let result = self.call("fetch_gemini_models", json!({ "api_key": api_key }))?;
+
+        Ok(result
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|item| item.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default())
+    }
+
+    // -----------------------------------------------------------------------
     // Public API — translation
     // -----------------------------------------------------------------------
 

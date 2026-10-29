@@ -731,3 +731,9 @@ msgstr "インテリジェンス ↑"
 
 msgid "Intelligenz ↓"
 msgstr "インテリジェンス ↓"
+
+msgid "Gemini-Modelle aktualisieren"
+msgstr "Gemini モデルを更新"
+
+msgid "Modelle von der Gemini API laden"
+msgstr "Gemini API からモデルを読み込む"

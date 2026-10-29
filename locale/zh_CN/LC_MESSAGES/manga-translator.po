@@ -731,3 +731,9 @@ msgstr "智能 ↑"
 
 msgid "Intelligenz ↓"
 msgstr "智能 ↓"
+
+msgid "Gemini-Modelle aktualisieren"
+msgstr "刷新 Gemini 模型"
+
+msgid "Modelle von der Gemini API laden"
+msgstr "从 Gemini API 加载模型"

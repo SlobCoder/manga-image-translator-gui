@@ -207,6 +207,8 @@ pub struct SettingsPanelPrivate {
     openrouter_selected: RefCell<String>,
     /// Refresh button row for fetching OpenRouter models.
     openrouter_refresh_row: RefCell<Option<adw::ActionRow>>,
+    /// Refresh button row for fetching Gemini models.
+    gemini_refresh_row: RefCell<Option<adw::ActionRow>>,
     local_model_row: RefCell<Option<adw::EntryRow>>,
     // Revealers for animated show/hide
     vlm_revealer: RefCell<Option<gtk::Revealer>>,
@@ -217,6 +219,8 @@ pub struct SettingsPanelPrivate {
 
     /// Callback to request an OpenRouter model list refresh.
     on_fetch_openrouter_models: RefCell<Option<Box<dyn Fn()>>>,
+    /// Callback to request a Gemini model list refresh.
+    on_fetch_gemini_models: RefCell<Option<Box<dyn Fn()>>>,
 
     // Language
     language_row: RefCell<Option<adw::ComboRow>>,
@@ -276,11 +280,13 @@ impl Default for SettingsPanelPrivate {
             openrouter_sort: Cell::new(OpenrouterSort::Id),
             openrouter_selected: RefCell::new(String::new()),
             openrouter_refresh_row: RefCell::new(None),
+            gemini_refresh_row: RefCell::new(None),
             local_model_row: RefCell::new(None),
             vlm_revealer: RefCell::new(None),
             scroll_indicator_top: RefCell::new(None),
             scroll_indicator_bottom: RefCell::new(None),
             on_fetch_openrouter_models: RefCell::new(None),
+            on_fetch_gemini_models: RefCell::new(None),
             language_row: RefCell::new(None),
             use_original_folder_row: RefCell::new(None),
             output_directory_row: RefCell::new(None),
@@ -566,6 +572,22 @@ impl SettingsPanelPrivate {
             Some("Modell für VLM-Korrektur"),
         );
 
+        // Refresh row for fetching the Gemini model list
+        let gemini_refresh_row = adw::ActionRow::builder()
+            .title(&i18n::t("Gemini-Modelle aktualisieren"))
+            .subtitle(&i18n::t("Modelle von der Gemini API laden"))
+            .activatable(true)
+            .selectable(false)
+            .build();
+        i18n::register_action_row(
+            &gemini_refresh_row,
+            "Gemini-Modelle aktualisieren",
+            Some("Modelle von der Gemini API laden"),
+        );
+        gemini_refresh_row.add_css_class("suggested-action");
+        let gemini_refresh_icon = gtk::Image::from_icon_name("view-refresh-symbolic");
+        gemini_refresh_row.add_suffix(&gemini_refresh_icon);
+
         // OpenRouter model row — the popup is built by hand instead of using
         // AdwComboRow's own, so it can carry a sort bar that stays visible
         // while the model list scrolls.
@@ -720,6 +742,7 @@ impl SettingsPanelPrivate {
 
         vlm_section.add(&vlm_type_row);
         vlm_section.add(&gemini_model_row);
+        vlm_section.add(&gemini_refresh_row);
         vlm_section.add(&openrouter_model_row);
         vlm_section.add(&openrouter_refresh_row);
         vlm_section.add(&local_model_row);
@@ -1291,6 +1314,16 @@ impl SettingsPanelPrivate {
             }
         ));
 
+        gemini_refresh_row.connect_activated(clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |_| {
+                if let Some(cb) = this.on_fetch_gemini_models.borrow().as_ref() {
+                    cb();
+                }
+            }
+        ));
+
         local_model_row.connect_changed(clone!(
             #[weak(rename_to = this)]
             self,
@@ -1453,6 +1486,7 @@ impl SettingsPanelPrivate {
         *self.openrouter_list.borrow_mut() = Some(openrouter_list);
         *self.openrouter_sort_buttons.borrow_mut() = sort_buttons;
         *self.openrouter_refresh_row.borrow_mut() = Some(openrouter_refresh_row);
+        *self.gemini_refresh_row.borrow_mut() = Some(gemini_refresh_row);
         *self.local_model_row.borrow_mut() = Some(local_model_row);
         *self.vlm_revealer.borrow_mut() = Some(vlm_revealer);
         *self.renderer_row.borrow_mut() = Some(renderer_row);
@@ -1786,6 +1820,9 @@ impl SettingsPanelPrivate {
             if let Some(gemini) = self.gemini_model_row.borrow().as_ref() {
                 gemini.set_visible(vlm_type == "gemini");
             }
+            if let Some(row) = self.gemini_refresh_row.borrow().as_ref() {
+                row.set_visible(vlm_type == "gemini");
+            }
             if let Some(openrouter) = self.openrouter_model_row.borrow().as_ref() {
                 openrouter.set_visible(vlm_type == "openrouter");
             }
@@ -1795,9 +1832,13 @@ impl SettingsPanelPrivate {
             if let Some(row) = self.openrouter_refresh_row.borrow().as_ref() {
                 row.set_visible(vlm_type == "openrouter");
             }
-            // Auto-fetch OpenRouter models when switching to OpenRouter type
+            // Auto-fetch the model list when switching backends
             if vlm_type == "openrouter" {
                 if let Some(cb) = self.on_fetch_openrouter_models.borrow().as_ref() {
+                    cb();
+                }
+            } else if vlm_type == "gemini" {
+                if let Some(cb) = self.on_fetch_gemini_models.borrow().as_ref() {
                     cb();
                 }
             }
@@ -1808,11 +1849,16 @@ impl SettingsPanelPrivate {
     fn on_gemini_model_changed(&self) {
         if let Some(row) = self.gemini_model_row.borrow().as_ref() {
             let idx = row.selected() as usize;
-            if let Some(model) = config::options::GEMINI_MODELS.get(idx) {
+            let model = row
+                .model()
+                .and_then(|model| model.item(idx as u32))
+                .and_downcast::<gtk::StringObject>()
+                .map(|object| object.string().to_string());
+            if let Some(model) = model {
                 if let Some(cfg) = self.config.borrow().as_ref() {
-                    cfg.borrow_mut().settings.gemini_model = model.to_string();
+                    cfg.borrow_mut().settings.gemini_model = model;
                     cfg.borrow_mut().settings.gemini_model_index = idx as u32;
-                    cfg.borrow_mut().save_settings();
+                    cfg.borrow().save_settings();
                 }
             }
             self.fire_setting_changed(SettingKind::GeminiModel);
@@ -2174,7 +2220,25 @@ impl SettingsPanel {
             row.set_selected(settings.vlm_type_index);
         }
         if let Some(row) = priv_.gemini_model_row.borrow().as_ref() {
-            row.set_selected(settings.gemini_model_index);
+            let models = if settings.gemini_models.is_empty() {
+                config::options::GEMINI_MODELS
+                    .iter()
+                    .map(|model| model.to_string())
+                    .collect::<Vec<_>>()
+            } else {
+                settings.gemini_models.clone()
+            };
+            let model_strs: Vec<&str> = models.iter().map(|model| model.as_str()).collect();
+            row.set_model(Some(&gtk::StringList::new(&model_strs)));
+
+            if let Some(index) = models
+                .iter()
+                .position(|model| *model == settings.gemini_model)
+            {
+                row.set_selected(index as u32);
+            } else if (settings.gemini_model_index as usize) < models.len() {
+                row.set_selected(settings.gemini_model_index);
+            }
         }
         if let Some(row) = priv_.local_model_row.borrow().as_ref() {
             row.set_text(&settings.local_model_path);
@@ -2192,6 +2256,9 @@ impl SettingsPanel {
         let vlm_type = settings.vlm_type.as_str();
         if let Some(gemini) = priv_.gemini_model_row.borrow().as_ref() {
             gemini.set_visible(vlm_type == "gemini");
+        }
+        if let Some(row) = priv_.gemini_refresh_row.borrow().as_ref() {
+            row.set_visible(vlm_type == "gemini");
         }
         if let Some(openrouter) = priv_.openrouter_model_row.borrow().as_ref() {
             openrouter.set_visible(vlm_type == "openrouter");
@@ -2384,6 +2451,68 @@ impl SettingsPanel {
         }
     }
 
+    /// Register the callback used by the Gemini refresh row.
+    pub fn set_on_fetch_gemini_models<F: Fn() + 'static>(&self, callback: F) {
+        let priv_ = self.imp();
+        *priv_.on_fetch_gemini_models.borrow_mut() = Some(Box::new(callback));
+    }
+
+    /// Show or hide a loading state on the Gemini refresh row.
+    pub fn set_gemini_fetching(&self, loading: bool) {
+        let priv_ = self.imp();
+        if let Some(row) = priv_.gemini_refresh_row.borrow().as_ref() {
+            if loading {
+                row.set_subtitle(&i18n::t("Modelle werden geladen…"));
+                row.set_sensitive(false);
+            } else {
+                row.set_subtitle(&i18n::t("Modelle von der Gemini API laden"));
+                row.set_sensitive(true);
+            }
+        }
+    }
+
+    /// Update the Gemini model combo row with a fresh model list.
+    ///
+    /// The list is persisted to the config cache so it survives restarts. If
+    /// the previously selected model is present, it is re-selected.
+    pub fn update_gemini_models(&self, models: &[String]) {
+        let priv_ = self.imp();
+
+        self.set_gemini_fetching(false);
+
+        if models.is_empty() {
+            if let Some(row) = priv_.gemini_refresh_row.borrow().as_ref() {
+                row.set_subtitle(&i18n::t("Keine Modelle gefunden"));
+            }
+            log::warn!("update_gemini_models called with empty model list");
+            return;
+        }
+
+        let selected = priv_
+            .config
+            .borrow()
+            .as_ref()
+            .map(|cfg| cfg.borrow().settings.gemini_model.clone())
+            .unwrap_or_default();
+
+        if let Some(row) = priv_.gemini_model_row.borrow().as_ref() {
+            let model_strs: Vec<&str> = models.iter().map(|model| model.as_str()).collect();
+            row.set_model(Some(&gtk::StringList::new(&model_strs)));
+
+            let index = models
+                .iter()
+                .position(|model| *model == selected)
+                .unwrap_or(0);
+            row.set_selected(index as u32);
+        }
+
+        if let Some(cfg) = priv_.config.borrow().as_ref() {
+            let mut manager = cfg.borrow_mut();
+            manager.settings.gemini_models = models.to_vec();
+            manager.save_settings();
+        }
+    }
+
     /// Enable or disable all settings widgets.
     ///
     /// Used during translation processing to prevent the user from
@@ -2427,6 +2556,9 @@ impl SettingsPanel {
             row.set_sensitive(sensitive);
         }
         if let Some(row) = priv_.openrouter_refresh_row.borrow().as_ref() {
+            row.set_sensitive(sensitive);
+        }
+        if let Some(row) = priv_.gemini_refresh_row.borrow().as_ref() {
             row.set_sensitive(sensitive);
         }
         if let Some(row) = priv_.renderer_row.borrow().as_ref() {

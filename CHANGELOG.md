@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Current Gemini models** — the Gemini dropdown used a hardcoded list that
+  stopped at the 3.1 previews. A new "Gemini-Modelle aktualisieren" row loads
+  the list from the Gemini API when the configured key is accepted, and falls
+  back to OpenRouter's public catalogue otherwise (the same ids without the
+  `google/` prefix). The result is cached in `gemini_models`, so it survives
+  restarts; image generation, TTS and embedding models are filtered out.
 - **Sortable OpenRouter model list** — the model popup carries a bar with
   "Preis ↑/↓" and "Intelligenz ↑/↓". Price sorts on the prompt price reported
   by the API, intelligence on the Artificial Analysis index; models without a

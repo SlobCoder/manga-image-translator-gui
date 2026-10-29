@@ -731,3 +731,9 @@ msgstr "지능 ↑"
 
 msgid "Intelligenz ↓"
 msgstr "지능 ↓"
+
+msgid "Gemini-Modelle aktualisieren"
+msgstr "Gemini 모델 새로 고침"
+
+msgid "Modelle von der Gemini API laden"
+msgstr "Gemini API에서 모델 불러오기"

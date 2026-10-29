@@ -586,6 +586,122 @@ def handle_fetch_openrouter_models(params: dict) -> list:
     return models
 
 
+GEMINI_MODELS_URL = "https://generativelanguage.googleapis.com/v1beta/models"
+
+
+# Gemini model families that cannot do text correction.
+_GEMINI_EXCLUDED_TAGS = ("-image", "-tts", "-live", "-embedding", "aqa")
+
+
+def _is_text_gemini_model(model_id: str) -> bool:
+    lowered = model_id.lower()
+    return not any(tag in lowered for tag in _GEMINI_EXCLUDED_TAGS)
+
+
+def _gemini_api_models(api_key: str) -> list:
+    """List visible models via the Gemini API (requires a valid key)."""
+    import urllib.parse
+    import urllib.request
+
+    models = []
+    page_token = ""
+    while True:
+        query = "?pageSize=1000"
+        if page_token:
+            query += "&pageToken=" + urllib.parse.quote(page_token)
+        request = urllib.request.Request(GEMINI_MODELS_URL + query)
+        if api_key:
+            request.add_header("x-goog-api-key", api_key)
+        with urllib.request.urlopen(request, timeout=15) as response:
+            payload = json.load(response)
+
+        for entry in payload.get("models", []):
+            methods = entry.get("supportedGenerationMethods") or []
+            if "generateContent" not in methods:
+                continue
+            model_id = (entry.get("name") or "").removeprefix("models/")
+            if model_id and _is_text_gemini_model(model_id):
+                models.append(model_id)
+
+        page_token = payload.get("nextPageToken") or ""
+        if not page_token:
+            break
+
+    return models
+
+
+def _openrouter_gemini_models() -> list:
+    """Fallback: current Gemini models from the public OpenRouter catalog.
+
+    OpenRouter lists the same model ids with a ``google/`` prefix, so this
+    works without a Gemini API key.
+    """
+    import urllib.request
+
+    request = urllib.request.Request(
+        OPENROUTER_MODELS_URL,
+        headers={"Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=15) as response:
+        payload = json.load(response)
+
+    models = []
+    for entry in payload.get("data", []):
+        model_id = entry.get("id") or ""
+        if not model_id.startswith("google/gemini"):
+            continue
+        # Skip provider variants such as ":batch" / ":free"; the base id is
+        # listed separately and is the one the Gemini API understands.
+        if ":" in model_id:
+            continue
+
+        architecture = entry.get("architecture") or {}
+        inputs = architecture.get("input_modalities") or []
+        outputs = architecture.get("output_modalities") or []
+        if "image" not in inputs or "text" not in outputs or "image" in outputs:
+            continue
+
+        short_id = model_id.removeprefix("google/")
+        if _is_text_gemini_model(short_id):
+            models.append(short_id)
+
+    return models
+
+
+def handle_fetch_gemini_models(params: dict) -> list:
+    """Fetch the current Gemini text models, newest first.
+
+    Prefers the Gemini API (authoritative, needs a valid key) and falls back
+    to the public OpenRouter catalog, which lists the same ids without the
+    ``google/`` prefix.
+    """
+    import urllib.error
+
+    api_key = (params.get("api_key") or "").strip()
+
+    models = []
+    if api_key:
+        try:
+            models = _gemini_api_models(api_key)
+        except (urllib.error.URLError, OSError) as exc:
+            logger.warning("Gemini model list unavailable (%s); trying OpenRouter", exc)
+
+    if not models:
+        try:
+            models = _openrouter_gemini_models()
+        except (urllib.error.URLError, OSError) as exc:
+            raise RuntimeError(f"Could not fetch the Gemini model list: {exc}") from exc
+
+    if not models:
+        raise RuntimeError("Gemini returned no usable models")
+
+    # Newest generation first: descending ids put gemini-4 before 3.8 before
+    # 3.1 before 2.5.
+    models = sorted(set(models), reverse=True)
+    logger.info("Fetched %d Gemini models", len(models))
+    return models
+
+
 # ---------------------------------------------------------------------------
 # Path helpers for per-image translations storage
 # ---------------------------------------------------------------------------
@@ -1211,6 +1327,7 @@ SIMPLE_COMMANDS = {
     "generate_thumbnail": handle_generate_thumbnail,
     "get_cached_translation": handle_get_cached_translation,
     "fetch_openrouter_models": handle_fetch_openrouter_models,
+    "fetch_gemini_models": handle_fetch_gemini_models,
     "cancel": handle_cancel,
 }
 

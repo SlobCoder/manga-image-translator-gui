@@ -129,7 +129,13 @@ impl SelectKind {
             SelectKind::Direction => static_list(options::DIRECTIONS),
             SelectKind::InpaintingPrecision => static_list(options::INPAINTING_PRECISIONS),
             SelectKind::VlmType => static_list(options::VLM_TYPES),
-            SelectKind::GeminiModel => static_list(options::GEMINI_MODELS),
+            SelectKind::GeminiModel => {
+                if settings.gemini_models.is_empty() {
+                    static_list(options::GEMINI_MODELS)
+                } else {
+                    settings.gemini_models.clone()
+                }
+            }
             SelectKind::OpenRouterModel => {
                 if settings.openrouter_model_cache.is_empty() {
                     vec![t("(Liste wird beim Start geladen)")]
@@ -170,7 +176,16 @@ impl SelectKind {
             SelectKind::Direction => settings.direction_index as usize,
             SelectKind::InpaintingPrecision => settings.inpainting_precision_index as usize,
             SelectKind::VlmType => settings.vlm_type_index as usize,
-            SelectKind::GeminiModel => settings.gemini_model_index as usize,
+            SelectKind::GeminiModel => settings
+                .gemini_models
+                .iter()
+                .position(|model| *model == settings.gemini_model)
+                .or_else(|| {
+                    options::GEMINI_MODELS
+                        .iter()
+                        .position(|model| *model == settings.gemini_model)
+                })
+                .unwrap_or(settings.gemini_model_index as usize),
             SelectKind::OpenRouterModel => settings
                 .openrouter_model_cache
                 .iter()
@@ -236,8 +251,16 @@ impl SelectKind {
             }
             SelectKind::GeminiModel => {
                 settings.gemini_model_index = index;
-                if let Some(model) = options::GEMINI_MODELS.get(index as usize) {
-                    settings.gemini_model = model.to_string();
+                let models = if settings.gemini_models.is_empty() {
+                    options::GEMINI_MODELS
+                        .iter()
+                        .map(|model| model.to_string())
+                        .collect::<Vec<_>>()
+                } else {
+                    settings.gemini_models.clone()
+                };
+                if let Some(model) = models.get(index as usize) {
+                    settings.gemini_model = model.clone();
                 }
             }
             SelectKind::OpenRouterModel => {
