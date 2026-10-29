@@ -737,3 +737,18 @@ msgstr "Gemini 모델 새로 고침"
 
 msgid "Modelle von der Gemini API laden"
 msgstr "Gemini API에서 모델 불러오기"
+
+msgid "Input-Preis"
+msgstr "입력 가격"
+
+msgid "Output-Preis"
+msgstr "출력 가격"
+
+msgid "Intelligenz-Index"
+msgstr "지능 지수"
+
+msgid "Kostenlos"
+msgstr "무료"
+
+msgid "nicht bewertet"
+msgstr "평가되지 않음"

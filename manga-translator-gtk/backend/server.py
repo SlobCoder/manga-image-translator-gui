@@ -512,10 +512,10 @@ def handle_get_cached_translation(params: dict) -> Optional[str]:
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 
-def _openrouter_price(entry: dict) -> float | None:
-    """Prompt price in USD per token, or None when the API omits it."""
+def _openrouter_price(entry: dict, field: str = "prompt") -> float | None:
+    """Price in USD per token for *field* (prompt, completion, …)."""
     try:
-        return float((entry.get("pricing") or {}).get("prompt"))
+        return float((entry.get("pricing") or {}).get(field))
     except (TypeError, ValueError):
         return None
 
@@ -577,6 +577,7 @@ def handle_fetch_openrouter_models(params: dict) -> list:
                 "id": model_id,
                 "name": entry.get("name") or model_id,
                 "price": _openrouter_price(entry),
+                "completion": _openrouter_price(entry, "completion"),
                 "intelligence": _openrouter_intelligence(entry),
             }
         )

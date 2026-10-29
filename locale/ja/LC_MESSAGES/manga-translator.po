@@ -737,3 +737,18 @@ msgstr "Gemini モデルを更新"
 
 msgid "Modelle von der Gemini API laden"
 msgstr "Gemini API からモデルを読み込む"
+
+msgid "Input-Preis"
+msgstr "入力価格"
+
+msgid "Output-Preis"
+msgstr "出力価格"
+
+msgid "Intelligenz-Index"
+msgstr "インテリジェンス指数"
+
+msgid "Kostenlos"
+msgstr "無料"
+
+msgid "nicht bewertet"
+msgstr "未評価"

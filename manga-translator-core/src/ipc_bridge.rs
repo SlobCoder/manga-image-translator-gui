@@ -947,11 +947,13 @@ impl IpcBridge {
                             .unwrap_or(&id)
                             .to_string();
                         let price = item.get("price").and_then(|v| v.as_f64());
+                        let completion = item.get("completion").and_then(|v| v.as_f64());
                         let intelligence = item.get("intelligence").and_then(|v| v.as_f64());
                         Some(OpenrouterModel {
                             id,
                             name,
                             price,
+                            completion,
                             intelligence,
                         })
                     })

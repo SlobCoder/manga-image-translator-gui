@@ -220,6 +220,9 @@ pub struct OpenrouterModel {
     /// Prompt price in USD per token, if the API reported one.
     #[serde(default)]
     pub price: Option<f64>,
+    /// Completion price in USD per token, if the API reported one.
+    #[serde(default)]
+    pub completion: Option<f64>,
     /// Artificial Analysis intelligence index (0-100), if the model is scored.
     #[serde(default)]
     pub intelligence: Option<f64>,

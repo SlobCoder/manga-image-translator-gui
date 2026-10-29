@@ -737,3 +737,18 @@ msgstr "刷新 Gemini 模型"
 
 msgid "Modelle von der Gemini API laden"
 msgstr "从 Gemini API 加载模型"
+
+msgid "Input-Preis"
+msgstr "输入价格"
+
+msgid "Output-Preis"
+msgstr "输出价格"
+
+msgid "Intelligenz-Index"
+msgstr "智能指数"
+
+msgid "Kostenlos"
+msgstr "免费"
+
+msgid "nicht bewertet"
+msgstr "未评分"

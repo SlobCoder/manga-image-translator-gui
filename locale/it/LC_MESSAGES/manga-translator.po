@@ -737,3 +737,18 @@ msgstr "Aggiorna i modelli Gemini"
 
 msgid "Modelle von der Gemini API laden"
 msgstr "Carica i modelli dall'API Gemini"
+
+msgid "Input-Preis"
+msgstr "Prezzo di input"
+
+msgid "Output-Preis"
+msgstr "Prezzo di output"
+
+msgid "Intelligenz-Index"
+msgstr "Indice di intelligenza"
+
+msgid "Kostenlos"
+msgstr "Gratuito"
+
+msgid "nicht bewertet"
+msgstr "non valutato"

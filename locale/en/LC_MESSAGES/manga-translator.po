@@ -737,3 +737,18 @@ msgstr "Refresh Gemini models"
 
 msgid "Modelle von der Gemini API laden"
 msgstr "Load models from the Gemini API"
+
+msgid "Input-Preis"
+msgstr "Input price"
+
+msgid "Output-Preis"
+msgstr "Output price"
+
+msgid "Intelligenz-Index"
+msgstr "Intelligence index"
+
+msgid "Kostenlos"
+msgstr "Free"
+
+msgid "nicht bewertet"
+msgstr "not rated"

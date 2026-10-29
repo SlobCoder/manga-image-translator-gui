@@ -105,6 +105,48 @@ fn optional_cmp(a: Option<f64>, b: Option<f64>, descending: bool) -> Ordering {
     }
 }
 
+/// A caption/value pair for the popup's detail sidebar.
+fn detail_block(msgid: &'static str, value: &gtk::Label) -> gtk::Box {
+    let block = gtk::Box::new(gtk::Orientation::Vertical, 1);
+
+    let caption = gtk::Label::new(Some(&i18n::t(msgid)));
+    caption.set_xalign(0.0);
+    caption.add_css_class("caption");
+    caption.add_css_class("dim-label");
+    i18n::register_label(&caption, msgid);
+
+    value.set_xalign(0.0);
+
+    block.append(&caption);
+    block.append(value);
+    block
+}
+
+/// Format a per-token price as USD per million tokens.
+fn format_token_price(per_token: Option<f64>) -> String {
+    match per_token {
+        None => "—".to_string(),
+        Some(price) if price <= 0.0 => i18n::t("Kostenlos"),
+        Some(price) => {
+            let per_million = price * 1_000_000.0;
+            if per_million < 0.1 {
+                format!("${:.3} / 1M", per_million)
+            } else {
+                format!("${:.2} / 1M", per_million)
+            }
+        }
+    }
+}
+
+/// Format an intelligence index, which may be fractional.
+fn format_score(score: Option<f64>) -> String {
+    match score {
+        None => i18n::t("nicht bewertet"),
+        Some(score) if score.fract().abs() < f64::EPSILON => format!("{:.0}", score),
+        Some(score) => format!("{:.1}", score),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Settings change callback type
 // ---------------------------------------------------------------------------
@@ -195,6 +237,11 @@ pub struct SettingsPanelPrivate {
     /// Popup with the sort bar and the scrollable model list.
     openrouter_popover: RefCell<Option<gtk::Popover>>,
     openrouter_list: RefCell<Option<gtk::ListBox>>,
+    /// Side panel in the popup with the selected model's numbers.
+    openrouter_details_title: RefCell<Option<gtk::Label>>,
+    openrouter_details_input: RefCell<Option<gtk::Label>>,
+    openrouter_details_output: RefCell<Option<gtk::Label>>,
+    openrouter_details_intelligence: RefCell<Option<gtk::Label>>,
     /// Sort buttons of the popup, paired with their order.
     openrouter_sort_buttons: RefCell<Vec<(OpenrouterSort, gtk::ToggleButton)>>,
     /// Guards the sort buttons against their own `toggled` signal while the
@@ -274,6 +321,10 @@ impl Default for SettingsPanelPrivate {
             openrouter_value_label: RefCell::new(None),
             openrouter_popover: RefCell::new(None),
             openrouter_list: RefCell::new(None),
+            openrouter_details_title: RefCell::new(None),
+            openrouter_details_input: RefCell::new(None),
+            openrouter_details_output: RefCell::new(None),
+            openrouter_details_intelligence: RefCell::new(None),
             openrouter_sort_buttons: RefCell::new(Vec::new()),
             syncing_openrouter_sort: Cell::new(false),
             openrouter_models: RefCell::new(Vec::new()),
@@ -662,11 +713,45 @@ impl SettingsPanelPrivate {
         openrouter_scrolled.set_propagate_natural_height(true);
         openrouter_scrolled.set_max_content_height(420);
         openrouter_scrolled.set_child(Some(&openrouter_list));
+        openrouter_scrolled.set_hexpand(true);
+
+        // Details of the model under the pointer / selected in the list.
+        let details_panel = gtk::Box::new(gtk::Orientation::Vertical, 8);
+        details_panel.set_size_request(150, -1);
+        details_panel.set_margin_top(9);
+        details_panel.set_margin_bottom(9);
+        details_panel.set_margin_start(12);
+        details_panel.set_margin_end(12);
+
+        let openrouter_details_title = gtk::Label::new(None);
+        openrouter_details_title.set_xalign(0.0);
+        openrouter_details_title.set_wrap(true);
+        openrouter_details_title.add_css_class("heading");
+        details_panel.append(&openrouter_details_title);
+
+        let openrouter_details_input = gtk::Label::new(None);
+        let openrouter_details_output = gtk::Label::new(None);
+        let openrouter_details_intelligence = gtk::Label::new(None);
+        for (msgid, value) in [
+            ("Input-Preis", &openrouter_details_input),
+            ("Output-Preis", &openrouter_details_output),
+            ("Intelligenz-Index", &openrouter_details_intelligence),
+        ] {
+            details_panel.append(&detail_block(msgid, value));
+        }
+
+        let content_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        content_box.append(&openrouter_scrolled);
+        let details_separator = gtk::Separator::new(gtk::Orientation::Vertical);
+        details_separator.set_margin_top(6);
+        details_separator.set_margin_bottom(6);
+        content_box.append(&details_separator);
+        content_box.append(&details_panel);
 
         let popover_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
         popover_box.append(&sort_bar);
         popover_box.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        popover_box.append(&openrouter_scrolled);
+        popover_box.append(&content_box);
         openrouter_popover.set_child(Some(&popover_box));
 
         openrouter_model_row.connect_activated(clone!(
@@ -700,22 +785,43 @@ impl SettingsPanelPrivate {
 
         // `.menu` popovers do not highlight the selected row, so the check
         // mark is the only indicator — keep it in sync with the selection.
-        openrouter_list.connect_row_selected(|list, selected| {
-            let mut child = list.first_child();
-            while let Some(widget) = child {
-                if let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() {
-                    let check = row
-                        .child()
-                        .and_downcast::<gtk::Box>()
-                        .and_then(|hbox| hbox.last_child())
-                        .and_downcast::<gtk::Image>();
-                    if let Some(check) = check {
-                        check.set_opacity(if Some(row) == selected { 1.0 } else { 0.0 });
+        openrouter_list.connect_row_selected(clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |list, selected| {
+                let mut child = list.first_child();
+                while let Some(widget) = child {
+                    if let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() {
+                        let check = row
+                            .child()
+                            .and_downcast::<gtk::Box>()
+                            .and_then(|hbox| hbox.last_child())
+                            .and_downcast::<gtk::Image>();
+                        if let Some(check) = check {
+                            check.set_opacity(if Some(row) == selected { 1.0 } else { 0.0 });
+                        }
                     }
+                    child = widget.next_sibling();
                 }
-                child = widget.next_sibling();
+                this.update_openrouter_details(selected.map(|row| row.index() as usize));
             }
-        });
+        ));
+
+        // Clicking a row closes the popup, so the details also follow the
+        // pointer while it moves over the list.
+        let motion = gtk::EventControllerMotion::new();
+        motion.connect_motion(clone!(
+            #[weak(rename_to = this)]
+            self,
+            #[weak]
+            openrouter_list,
+            move |_, _x, y| {
+                if let Some(row) = openrouter_list.row_at_y(y as i32) {
+                    this.update_openrouter_details(Some(row.index() as usize));
+                }
+            }
+        ));
+        openrouter_list.add_controller(motion);
 
         // Refresh row for fetching OpenRouter models from the API
         let openrouter_refresh_row = adw::ActionRow::builder()
@@ -1484,6 +1590,10 @@ impl SettingsPanelPrivate {
         *self.openrouter_value_label.borrow_mut() = Some(openrouter_value_label);
         *self.openrouter_popover.borrow_mut() = Some(openrouter_popover);
         *self.openrouter_list.borrow_mut() = Some(openrouter_list);
+        *self.openrouter_details_title.borrow_mut() = Some(openrouter_details_title);
+        *self.openrouter_details_input.borrow_mut() = Some(openrouter_details_input);
+        *self.openrouter_details_output.borrow_mut() = Some(openrouter_details_output);
+        *self.openrouter_details_intelligence.borrow_mut() = Some(openrouter_details_intelligence);
         *self.openrouter_sort_buttons.borrow_mut() = sort_buttons;
         *self.openrouter_refresh_row.borrow_mut() = Some(openrouter_refresh_row);
         *self.gemini_refresh_row.borrow_mut() = Some(gemini_refresh_row);
@@ -1939,6 +2049,7 @@ impl SettingsPanelPrivate {
             }
         }
 
+        self.update_openrouter_details(index);
         self.update_openrouter_value_label();
     }
 
@@ -1952,6 +2063,44 @@ impl SettingsPanelPrivate {
             } else {
                 Some(model.as_str())
             });
+        }
+    }
+
+    /// Show the numbers of the given model in the popup's detail sidebar.
+    fn update_openrouter_details(&self, index: Option<usize>) {
+        let model = index.and_then(|index| self.openrouter_models.borrow().get(index).cloned());
+
+        let (title, input, output, intelligence) = match model {
+            Some(model) => (
+                model.id,
+                format_token_price(model.price),
+                format_token_price(model.completion),
+                format_score(model.intelligence),
+            ),
+            None => (
+                String::new(),
+                "—".to_string(),
+                "—".to_string(),
+                "—".to_string(),
+            ),
+        };
+
+        if let Some(label) = self.openrouter_details_title.borrow().as_ref() {
+            label.set_text(&title);
+            label.set_tooltip_text(if title.is_empty() {
+                None
+            } else {
+                Some(title.as_str())
+            });
+        }
+        if let Some(label) = self.openrouter_details_input.borrow().as_ref() {
+            label.set_text(&input);
+        }
+        if let Some(label) = self.openrouter_details_output.borrow().as_ref() {
+            label.set_text(&output);
+        }
+        if let Some(label) = self.openrouter_details_intelligence.borrow().as_ref() {
+            label.set_text(&intelligence);
         }
     }
 

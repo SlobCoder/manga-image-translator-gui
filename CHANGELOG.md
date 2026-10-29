@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Model details in the OpenRouter popup** — a sidebar next to the list shows
+  the input price, output price (both per 1M tokens) and the Artificial
+  Analysis intelligence index of the model under the pointer. Free models and
+  unscored models are labelled accordingly.
 - **Current Gemini models** — the Gemini dropdown used a hardcoded list that
   stopped at the 3.1 previews. A new "Gemini-Modelle aktualisieren" row loads
   the list from the Gemini API when the configured key is accepted, and falls
