@@ -25,6 +25,7 @@ use std::rc::Rc;
 use crate::config::{self, ConfigManager};
 use crate::i18n;
 
+
 // ---------------------------------------------------------------------------
 // Settings change callback type
 // ---------------------------------------------------------------------------
@@ -108,7 +109,6 @@ pub struct SettingsPanelPrivate {
     mode_row: RefCell<Option<adw::ComboRow>>,
 
     // VLM section
-    vlm_section: RefCell<Option<adw::PreferencesGroup>>,
     vlm_type_row: RefCell<Option<adw::ComboRow>>,
     gemini_model_row: RefCell<Option<adw::ComboRow>>,
     openrouter_model_row: RefCell<Option<adw::ComboRow>>,
@@ -171,7 +171,6 @@ impl Default for SettingsPanelPrivate {
             mocr_merge_row: RefCell::new(None),
             advanced_group: RefCell::new(None),
             mode_row: RefCell::new(None),
-            vlm_section: RefCell::new(None),
             vlm_type_row: RefCell::new(None),
             gemini_model_row: RefCell::new(None),
             openrouter_model_row: RefCell::new(None),
@@ -1240,7 +1239,6 @@ impl SettingsPanelPrivate {
         *self.rtl_row.borrow_mut() = Some(rtl_row);
         *self.mocr_merge_row.borrow_mut() = Some(mocr_merge_row);
         *self.advanced_group.borrow_mut() = Some(advanced_group);
-        *self.vlm_section.borrow_mut() = Some(vlm_section);
         *self.vlm_type_row.borrow_mut() = Some(vlm_type_row);
         *self.gemini_model_row.borrow_mut() = Some(gemini_model_row);
         *self.openrouter_model_row.borrow_mut() = Some(openrouter_model_row);
@@ -1336,7 +1334,8 @@ impl SettingsPanelPrivate {
                 cfg.borrow_mut().settings.translation_mode_index = idx as u32;
                 cfg.borrow_mut().save_settings();
             }
-            // Toggle VLM section visibility
+            // Reveal/collapse the VLM section (the revealer is the only
+            // visibility control, see set_config below)
             let is_vlm = mode == "vlm";
             if let Some(revealer) = self.vlm_revealer.borrow().as_ref() {
                 revealer.set_reveal_child(is_vlm);
@@ -1882,11 +1881,10 @@ impl SettingsPanel {
             row.set_text(&settings.local_model_path);
         }
 
-        // Toggle VLM section visibility based on mode
+        // Reveal the VLM section when the saved mode is VLM. The revealer is
+        // the only visibility control: hiding the group itself would leave the
+        // revealer with a hidden child, so it could never show it again.
         let is_vlm = settings.translation_mode == "vlm";
-        if let Some(section) = priv_.vlm_section.borrow().as_ref() {
-            section.set_visible(is_vlm);
-        }
         if let Some(revealer) = priv_.vlm_revealer.borrow().as_ref() {
             revealer.set_reveal_child(is_vlm);
         }
