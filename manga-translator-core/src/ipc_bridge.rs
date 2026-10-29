@@ -34,6 +34,8 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{Value, json};
 
+use crate::config::OpenrouterModel;
+
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
@@ -229,12 +231,6 @@ impl Default for TranslationParams {
             api_keys: HashMap::new(),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ModelInfo {
-    pub id: String,
-    pub name: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -934,12 +930,12 @@ impl IpcBridge {
 
     /// Fetch available vision-capable models from the OpenRouter API.
     #[cfg_attr(feature = "hotpath", hotpath::measure)]
-    pub fn fetch_openrouter_models(&self, api_key: &str) -> BridgeResult<Vec<ModelInfo>> {
+    pub fn fetch_openrouter_models(&self, api_key: &str) -> BridgeResult<Vec<OpenrouterModel>> {
         self.ensure_initialized()?;
 
         let result = self.call("fetch_openrouter_models", json!({ "api_key": api_key }))?;
 
-        let models: Vec<ModelInfo> = result
+        let models: Vec<OpenrouterModel> = result
             .as_array()
             .map(|arr| {
                 arr.iter()
@@ -950,7 +946,14 @@ impl IpcBridge {
                             .and_then(|v| v.as_str())
                             .unwrap_or(&id)
                             .to_string();
-                        Some(ModelInfo { id, name })
+                        let price = item.get("price").and_then(|v| v.as_f64());
+                        let intelligence = item.get("intelligence").and_then(|v| v.as_f64());
+                        Some(OpenrouterModel {
+                            id,
+                            name,
+                            price,
+                            intelligence,
+                        })
                     })
                     .collect()
             })

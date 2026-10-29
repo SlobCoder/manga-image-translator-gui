@@ -6,6 +6,7 @@ mod css;
 mod dialogs;
 mod file_browser;
 mod main_window;
+mod marquee_label;
 mod preview;
 mod settings_panel;
 mod spring_splitter;

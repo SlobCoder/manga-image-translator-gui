@@ -719,3 +719,15 @@ msgstr "翻訳のカスタム保存先"
 
 msgid "Öffne Menü → Virtuelle Umgebung… um die Pfade zu konfigurieren"
 msgstr "メニュー → 仮想環境… を開いてパスを設定"
+
+msgid "Preis ↑"
+msgstr "価格 ↑"
+
+msgid "Preis ↓"
+msgstr "価格 ↓"
+
+msgid "Intelligenz ↑"
+msgstr "インテリジェンス ↑"
+
+msgid "Intelligenz ↓"
+msgstr "インテリジェンス ↓"

@@ -719,3 +719,15 @@ msgstr "Emplacement personnalisé pour les traductions"
 
 msgid "Öffne Menü → Virtuelle Umgebung… um die Pfade zu konfigurieren"
 msgstr "Ouvrir Menu → Environnement virtuel… pour configurer les chemins"
+
+msgid "Preis ↑"
+msgstr "Prix ↑"
+
+msgid "Preis ↓"
+msgstr "Prix ↓"
+
+msgid "Intelligenz ↑"
+msgstr "Intelligence ↑"
+
+msgid "Intelligenz ↓"
+msgstr "Intelligence ↓"

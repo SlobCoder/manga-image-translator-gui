@@ -719,3 +719,15 @@ msgstr "自定义翻译存储位置"
 
 msgid "Öffne Menü → Virtuelle Umgebung… um die Pfade zu konfigurieren"
 msgstr "打开菜单 → 虚拟环境… 来配置路径"
+
+msgid "Preis ↑"
+msgstr "价格 ↑"
+
+msgid "Preis ↓"
+msgstr "价格 ↓"
+
+msgid "Intelligenz ↑"
+msgstr "智能 ↑"
+
+msgid "Intelligenz ↓"
+msgstr "智能 ↓"

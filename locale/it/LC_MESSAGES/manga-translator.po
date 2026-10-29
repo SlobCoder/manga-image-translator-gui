@@ -719,3 +719,15 @@ msgstr "Salva le traduzioni nella stessa cartella dei file originali"
 
 msgid "Benutzerdefinierter Speicherort für Übersetzungen"
 msgstr "Posizione personalizzata per le traduzioni"
+
+msgid "Preis ↑"
+msgstr "Prezzo ↑"
+
+msgid "Preis ↓"
+msgstr "Prezzo ↓"
+
+msgid "Intelligenz ↑"
+msgstr "Intelligenza ↑"
+
+msgid "Intelligenz ↓"
+msgstr "Intelligenza ↓"

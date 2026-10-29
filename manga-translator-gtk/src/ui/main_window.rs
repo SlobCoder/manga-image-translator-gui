@@ -209,21 +209,20 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
             // Show loading state
             sp.set_openrouter_fetching(true);
 
-            let (tx, rx) = async_channel::bounded::<Vec<String>>(1);
+            let (tx, rx) = async_channel::bounded::<Vec<config::OpenrouterModel>>(1);
 
             std::thread::spawn(move || {
-                let model_ids = match bridge.fetch_openrouter_models(&api_key) {
+                let models = match bridge.fetch_openrouter_models(&api_key) {
                     Ok(models) => {
-                        let ids: Vec<String> = models.iter().map(|m| m.id.clone()).collect();
-                        if ids.is_empty() {
+                        if models.is_empty() {
                             log::warn!("OpenRouter returned no vision-capable models");
                         } else {
                             log::info!(
                                 "Fetched {} vision-capable models from OpenRouter",
-                                ids.len()
+                                models.len()
                             );
                         }
-                        ids
+                        models
                     }
                     Err(e) => {
                         log::error!("Failed to fetch OpenRouter models: {}", e);
@@ -231,12 +230,12 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
                     }
                 };
                 // Always send so the UI can clear its loading state
-                let _ = tx.send_blocking(model_ids);
+                let _ = tx.send_blocking(models);
             });
 
             glib::spawn_future_local(async move {
-                if let Ok(model_ids) = rx.recv().await {
-                    sp.update_openrouter_models(&model_ids);
+                if let Ok(models) = rx.recv().await {
+                    sp.update_openrouter_models(&models);
                 }
             });
         });

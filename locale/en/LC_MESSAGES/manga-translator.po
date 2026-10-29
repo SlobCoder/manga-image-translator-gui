@@ -719,3 +719,15 @@ msgstr "Custom storage location for translations"
 
 msgid "Öffne Menü → Virtuelle Umgebung… um die Pfade zu konfigurieren"
 msgstr "Open Menu → Virtual Environment… to configure the paths"
+
+msgid "Preis ↑"
+msgstr "Price ↑"
+
+msgid "Preis ↓"
+msgstr "Price ↓"
+
+msgid "Intelligenz ↑"
+msgstr "Intelligence ↑"
+
+msgid "Intelligenz ↓"
+msgstr "Intelligence ↓"

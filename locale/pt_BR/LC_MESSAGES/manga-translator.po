@@ -719,3 +719,15 @@ msgstr "Local personalizado para traduções"
 
 msgid "Öffne Menü → Virtuelle Umgebung… um die Pfade zu konfigurieren"
 msgstr "Abrir Menu → Ambiente virtual… para configurar os caminhos"
+
+msgid "Preis ↑"
+msgstr "Preço ↑"
+
+msgid "Preis ↓"
+msgstr "Preço ↓"
+
+msgid "Intelligenz ↑"
+msgstr "Inteligência ↑"
+
+msgid "Intelligenz ↓"
+msgstr "Inteligência ↓"

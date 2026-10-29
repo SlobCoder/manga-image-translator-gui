@@ -208,6 +208,23 @@ pub fn api_required_services() -> HashMap<usize, &'static str> {
 // Settings model (persisted to JSON)
 // ---------------------------------------------------------------------------
 
+/// One OpenRouter model as reported by the API.
+///
+/// Cached in the settings so the model popup can be sorted by price or
+/// intelligence without a network round-trip.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct OpenrouterModel {
+    pub id: String,
+    #[serde(default)]
+    pub name: String,
+    /// Prompt price in USD per token, if the API reported one.
+    #[serde(default)]
+    pub price: Option<f64>,
+    /// Artificial Analysis intelligence index (0-100), if the model is scored.
+    #[serde(default)]
+    pub intelligence: Option<f64>,
+}
+
 /// Persistent application settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Settings {
@@ -324,6 +341,15 @@ pub struct Settings {
     #[serde(default = "default_openrouter_model_cache")]
     pub openrouter_model_cache: Vec<String>,
 
+    /// Cached OpenRouter model metadata (price and intelligence score), used
+    /// to sort the model popup without a network round-trip.
+    #[serde(default)]
+    pub openrouter_model_meta: Vec<OpenrouterModel>,
+
+    /// Sort order of the OpenRouter model popup (`id`, `price-asc`, …).
+    #[serde(default = "default_openrouter_sort")]
+    pub openrouter_sort: String,
+
     // Upscale ratio (depends on selected upscaler)
     #[serde(default = "default_upscale_ratio")]
     pub upscale_ratio: u32,
@@ -438,6 +464,10 @@ fn default_openrouter_model_cache() -> Vec<String> {
         "claude-3.5-sonnet".into(),
     ]
 }
+
+fn default_openrouter_sort() -> String {
+    "id".into()
+}
 fn default_upscale_ratio() -> u32 {
     2
 }
@@ -515,6 +545,8 @@ impl Default for Settings {
             virtual_env_path: String::new(),
             manga_translator_path: String::new(),
             openrouter_model_cache: default_openrouter_model_cache(),
+            openrouter_model_meta: Vec::new(),
+            openrouter_sort: default_openrouter_sort(),
             upscale_ratio: default_upscale_ratio(),
             renderer_index: default_renderer(),
             alignment_index: default_alignment(),

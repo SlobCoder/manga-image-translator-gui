@@ -542,3 +542,15 @@ msgstr "Zurück"
 
 msgid "Zurücksetzen"
 msgstr "Zurücksetzen"
+
+msgid "Preis ↑"
+msgstr "Preis ↑"
+
+msgid "Preis ↓"
+msgstr "Preis ↓"
+
+msgid "Intelligenz ↑"
+msgstr "Intelligenz ↑"
+
+msgid "Intelligenz ↓"
+msgstr "Intelligenz ↓"

@@ -17,14 +17,93 @@ use gio;
 use gtk::glib;
 use gtk::glib::clone;
 use gtk::subclass::prelude::*;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use std::rc::Rc;
 
-use crate::config::{self, ConfigManager};
+use crate::config::{self, ConfigManager, OpenrouterModel};
 use crate::i18n;
 
+use super::marquee_label::MarqueeLabel;
+
+// ---------------------------------------------------------------------------
+// OpenRouter model sorting
+// ---------------------------------------------------------------------------
+
+/// Ordering options for the OpenRouter model popup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OpenrouterSort {
+    Id,
+    PriceAsc,
+    PriceDesc,
+    IntelligenceAsc,
+    IntelligenceDesc,
+}
+
+impl OpenrouterSort {
+    /// The four orders offered by the popup bar, in button order.
+    const OPTIONS: [(Self, &'static str); 4] = [
+        (Self::PriceAsc, "Preis ↑"),
+        (Self::PriceDesc, "Preis ↓"),
+        (Self::IntelligenceAsc, "Intelligenz ↑"),
+        (Self::IntelligenceDesc, "Intelligenz ↓"),
+    ];
+
+    fn key(self) -> &'static str {
+        match self {
+            Self::Id => "id",
+            Self::PriceAsc => "price-asc",
+            Self::PriceDesc => "price-desc",
+            Self::IntelligenceAsc => "intelligence-asc",
+            Self::IntelligenceDesc => "intelligence-desc",
+        }
+    }
+
+    fn from_key(key: &str) -> Self {
+        match key {
+            "price-asc" => Self::PriceAsc,
+            "price-desc" => Self::PriceDesc,
+            "intelligence-asc" => Self::IntelligenceAsc,
+            "intelligence-desc" => Self::IntelligenceDesc,
+            _ => Self::Id,
+        }
+    }
+
+    /// Sort *models* in place. Entries without the sort key go last in both
+    /// directions; ties fall back to the id so the order stays deterministic.
+    fn sort(self, models: &mut [OpenrouterModel]) {
+        models.sort_by(|a, b| {
+            let by_id = a.id.cmp(&b.id);
+            match self {
+                Self::Id => by_id,
+                Self::PriceAsc => optional_cmp(a.price, b.price, false).then(by_id),
+                Self::PriceDesc => optional_cmp(a.price, b.price, true).then(by_id),
+                Self::IntelligenceAsc => {
+                    optional_cmp(a.intelligence, b.intelligence, false).then(by_id)
+                }
+                Self::IntelligenceDesc => {
+                    optional_cmp(a.intelligence, b.intelligence, true).then(by_id)
+                }
+            }
+        });
+    }
+}
+
+/// Compare two optional numbers, putting `None` after every value and
+/// optionally reversing the direction.
+fn optional_cmp(a: Option<f64>, b: Option<f64>, descending: bool) -> Ordering {
+    match (a, b) {
+        (Some(a), Some(b)) => {
+            let order = a.partial_cmp(&b).unwrap_or(Ordering::Equal);
+            if descending { order.reverse() } else { order }
+        }
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Settings change callback type
@@ -111,7 +190,21 @@ pub struct SettingsPanelPrivate {
     // VLM section
     vlm_type_row: RefCell<Option<adw::ComboRow>>,
     gemini_model_row: RefCell<Option<adw::ComboRow>>,
-    openrouter_model_row: RefCell<Option<adw::ComboRow>>,
+    openrouter_model_row: RefCell<Option<adw::ActionRow>>,
+    openrouter_value_label: RefCell<Option<gtk::Label>>,
+    /// Popup with the sort bar and the scrollable model list.
+    openrouter_popover: RefCell<Option<gtk::Popover>>,
+    openrouter_list: RefCell<Option<gtk::ListBox>>,
+    /// Sort buttons of the popup, paired with their order.
+    openrouter_sort_buttons: RefCell<Vec<(OpenrouterSort, gtk::ToggleButton)>>,
+    /// Guards the sort buttons against their own `toggled` signal while the
+    /// state is synced from the settings.
+    syncing_openrouter_sort: Cell<bool>,
+    /// Model metadata in the currently displayed order.
+    openrouter_models: RefCell<Vec<OpenrouterModel>>,
+    openrouter_sort: Cell<OpenrouterSort>,
+    /// Currently selected OpenRouter model id.
+    openrouter_selected: RefCell<String>,
     /// Refresh button row for fetching OpenRouter models.
     openrouter_refresh_row: RefCell<Option<adw::ActionRow>>,
     local_model_row: RefCell<Option<adw::EntryRow>>,
@@ -174,6 +267,14 @@ impl Default for SettingsPanelPrivate {
             vlm_type_row: RefCell::new(None),
             gemini_model_row: RefCell::new(None),
             openrouter_model_row: RefCell::new(None),
+            openrouter_value_label: RefCell::new(None),
+            openrouter_popover: RefCell::new(None),
+            openrouter_list: RefCell::new(None),
+            openrouter_sort_buttons: RefCell::new(Vec::new()),
+            syncing_openrouter_sort: Cell::new(false),
+            openrouter_models: RefCell::new(Vec::new()),
+            openrouter_sort: Cell::new(OpenrouterSort::Id),
+            openrouter_selected: RefCell::new(String::new()),
             openrouter_refresh_row: RefCell::new(None),
             local_model_row: RefCell::new(None),
             vlm_revealer: RefCell::new(None),
@@ -465,18 +566,134 @@ impl SettingsPanelPrivate {
             Some("Modell für VLM-Korrektur"),
         );
 
-        // OpenRouter Model ComboRow (initially empty — populated from cache or API fetch)
-        let openrouter_model_list = gtk::StringList::new(&[]);
-        let openrouter_model_row = adw::ComboRow::builder()
+        // OpenRouter model row — the popup is built by hand instead of using
+        // AdwComboRow's own, so it can carry a sort bar that stays visible
+        // while the model list scrolls.
+        let openrouter_model_row = adw::ActionRow::builder()
             .title(&i18n::t("OpenRouter Modell"))
             .subtitle(&i18n::t("Vision-fähiges Modell"))
-            .model(&openrouter_model_list)
+            .activatable(true)
             .build();
-        i18n::register_combo_row(
+        i18n::register_action_row(
             &openrouter_model_row,
             "OpenRouter Modell",
             Some("Vision-fähiges Modell"),
         );
+
+        let openrouter_value_label = gtk::Label::new(None);
+        openrouter_value_label.set_xalign(1.0);
+        openrouter_value_label.set_ellipsize(pango::EllipsizeMode::End);
+        openrouter_value_label.set_max_width_chars(24);
+        openrouter_value_label.add_css_class("dim-label");
+        openrouter_model_row.add_suffix(&openrouter_value_label);
+
+        let openrouter_arrow = gtk::Image::from_icon_name("pan-down-symbolic");
+        openrouter_arrow.add_css_class("dim-label");
+        openrouter_model_row.add_suffix(&openrouter_arrow);
+
+        let openrouter_popover = gtk::Popover::new();
+        openrouter_popover.set_has_arrow(true);
+        openrouter_popover.add_css_class("menu");
+        openrouter_popover.set_parent(&openrouter_model_row);
+
+        // Sort bar. It sits above the scrolled window, not inside it, so it
+        // stays in place while the list scrolls.
+        let sort_bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        sort_bar.set_margin_top(9);
+        sort_bar.set_margin_bottom(9);
+        sort_bar.set_margin_start(9);
+        sort_bar.set_margin_end(9);
+
+        let mut sort_buttons = Vec::new();
+        let mut group_anchor: Option<gtk::ToggleButton> = None;
+        for chunk in OpenrouterSort::OPTIONS.chunks(2) {
+            let button_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+            button_row.add_css_class("linked");
+            for (sort, msgid) in chunk {
+                let button = gtk::ToggleButton::with_label(&i18n::t(msgid));
+                button.set_hexpand(true);
+                i18n::register_toggle(&button, msgid);
+                match &group_anchor {
+                    Some(anchor) => button.set_group(Some(anchor)),
+                    None => group_anchor = Some(button.clone()),
+                }
+                let panel = obj.clone();
+                let sort = *sort;
+                button.connect_toggled(move |button| {
+                    if !button.is_active() || panel.imp().syncing_openrouter_sort.get() {
+                        return;
+                    }
+                    panel.imp().set_openrouter_sort(sort);
+                });
+                button_row.append(&button);
+                sort_buttons.push((sort, button));
+            }
+            sort_bar.append(&button_row);
+        }
+
+        let openrouter_list = gtk::ListBox::new();
+        openrouter_list.set_selection_mode(gtk::SelectionMode::Single);
+
+        let openrouter_scrolled = gtk::ScrolledWindow::new();
+        openrouter_scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        openrouter_scrolled.set_propagate_natural_width(true);
+        openrouter_scrolled.set_propagate_natural_height(true);
+        openrouter_scrolled.set_max_content_height(420);
+        openrouter_scrolled.set_child(Some(&openrouter_list));
+
+        let popover_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        popover_box.append(&sort_bar);
+        popover_box.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        popover_box.append(&openrouter_scrolled);
+        openrouter_popover.set_child(Some(&popover_box));
+
+        openrouter_model_row.connect_activated(clone!(
+            #[weak]
+            openrouter_popover,
+            #[weak]
+            openrouter_list,
+            move |_| {
+                openrouter_popover.popup();
+                match openrouter_list.selected_row() {
+                    Some(row) => {
+                        row.grab_focus();
+                    }
+                    None => {
+                        openrouter_list.grab_focus();
+                    }
+                }
+            }
+        ));
+
+        openrouter_list.connect_row_activated(clone!(
+            #[weak(rename_to = this)]
+            self,
+            #[weak]
+            openrouter_popover,
+            move |_, row| {
+                this.on_openrouter_row_activated(row.index() as usize);
+                openrouter_popover.popdown();
+            }
+        ));
+
+        // `.menu` popovers do not highlight the selected row, so the check
+        // mark is the only indicator — keep it in sync with the selection.
+        openrouter_list.connect_row_selected(|list, selected| {
+            let mut child = list.first_child();
+            while let Some(widget) = child {
+                if let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() {
+                    let check = row
+                        .child()
+                        .and_downcast::<gtk::Box>()
+                        .and_then(|hbox| hbox.last_child())
+                        .and_downcast::<gtk::Image>();
+                    if let Some(check) = check {
+                        check.set_opacity(if Some(row) == selected { 1.0 } else { 0.0 });
+                    }
+                }
+                child = widget.next_sibling();
+            }
+        });
 
         // Refresh row for fetching OpenRouter models from the API
         let openrouter_refresh_row = adw::ActionRow::builder()
@@ -1064,17 +1281,6 @@ impl SettingsPanelPrivate {
             ),
         );
 
-        openrouter_model_row.connect_notify_local(
-            Some("selected"),
-            clone!(
-                #[weak(rename_to = this)]
-                self,
-                move |_, _| {
-                    this.on_openrouter_model_changed();
-                }
-            ),
-        );
-
         openrouter_refresh_row.connect_activated(clone!(
             #[weak(rename_to = this)]
             self,
@@ -1242,6 +1448,10 @@ impl SettingsPanelPrivate {
         *self.vlm_type_row.borrow_mut() = Some(vlm_type_row);
         *self.gemini_model_row.borrow_mut() = Some(gemini_model_row);
         *self.openrouter_model_row.borrow_mut() = Some(openrouter_model_row);
+        *self.openrouter_value_label.borrow_mut() = Some(openrouter_value_label);
+        *self.openrouter_popover.borrow_mut() = Some(openrouter_popover);
+        *self.openrouter_list.borrow_mut() = Some(openrouter_list);
+        *self.openrouter_sort_buttons.borrow_mut() = sort_buttons;
         *self.openrouter_refresh_row.borrow_mut() = Some(openrouter_refresh_row);
         *self.local_model_row.borrow_mut() = Some(local_model_row);
         *self.vlm_revealer.borrow_mut() = Some(vlm_revealer);
@@ -1609,22 +1819,111 @@ impl SettingsPanelPrivate {
         }
     }
 
-    fn on_openrouter_model_changed(&self) {
-        if let Some(row) = self.openrouter_model_row.borrow().as_ref() {
-            let idx = row.selected();
-            // Get the model name from the string list
-            if let Some(model) = row.model().and_then(|m| m.item(idx)) {
-                let model_str = model
-                    .downcast_ref::<gtk::StringObject>()
-                    .map(|s| s.string().to_string())
-                    .unwrap_or_default();
-                if let Some(cfg) = self.config.borrow().as_ref() {
-                    cfg.borrow_mut().settings.openrouter_model = model_str;
-                    cfg.borrow_mut().save_settings();
-                }
-            }
-            self.fire_setting_changed(SettingKind::OpenrouterModel);
+    /// Apply a sort order, persist it, and rebuild the popup list.
+    fn set_openrouter_sort(&self, sort: OpenrouterSort) {
+        if self.openrouter_sort.get() == sort {
+            return;
         }
+        self.openrouter_sort.set(sort);
+
+        if let Some(cfg) = self.config.borrow().as_ref() {
+            cfg.borrow_mut().settings.openrouter_sort = sort.key().to_string();
+            cfg.borrow().save_settings();
+        }
+
+        self.sync_openrouter_sort_buttons();
+        self.rebuild_openrouter_list(false);
+    }
+
+    /// Reflect the current sort order in the popup's toggle buttons.
+    fn sync_openrouter_sort_buttons(&self) {
+        let current = self.openrouter_sort.get();
+        self.syncing_openrouter_sort.set(true);
+        for (sort, button) in self.openrouter_sort_buttons.borrow().iter() {
+            button.set_active(*sort == current);
+        }
+        self.syncing_openrouter_sort.set(false);
+    }
+
+    /// Rebuild the popup rows from `openrouter_models` in the current order.
+    ///
+    /// With `fallback_to_first`, a list without a configured model selects the
+    /// first entry so a translation always has a model to send.
+    fn rebuild_openrouter_list(&self, fallback_to_first: bool) {
+        let mut models = self.openrouter_models.borrow().clone();
+        self.openrouter_sort.get().sort(&mut models);
+
+        let list = self.openrouter_list.borrow().clone();
+        if let Some(list) = &list {
+            while let Some(child) = list.first_child() {
+                list.remove(&child);
+            }
+            for model in &models {
+                let row = gtk::ListBoxRow::new();
+                row.set_activatable(true);
+
+                let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+                let label = MarqueeLabel::new();
+                label.set_hexpand(true);
+                label.set_text(&model.id);
+                hbox.append(&label);
+
+                let check = gtk::Image::from_icon_name("object-select-symbolic");
+                check.set_opacity(0.0);
+                hbox.append(&check);
+
+                row.set_child(Some(&hbox));
+                list.append(&row);
+            }
+        }
+
+        let mut selected = self.openrouter_selected.borrow().clone();
+        let mut index = models.iter().position(|model| model.id == selected);
+        if index.is_none() && fallback_to_first && !models.is_empty() {
+            index = Some(0);
+            selected = models[0].id.clone();
+            *self.openrouter_selected.borrow_mut() = selected.clone();
+        }
+
+        *self.openrouter_models.borrow_mut() = models;
+
+        if let (Some(list), Some(index)) = (&list, index) {
+            if let Some(row) = list.row_at_index(index as i32) {
+                list.select_row(Some(&row));
+            }
+        }
+
+        self.update_openrouter_value_label();
+    }
+
+    /// Write the selected model id onto the row.
+    fn update_openrouter_value_label(&self) {
+        let model = self.openrouter_selected.borrow().clone();
+        if let Some(label) = self.openrouter_value_label.borrow().as_ref() {
+            label.set_text(&model);
+            label.set_tooltip_text(if model.is_empty() {
+                None
+            } else {
+                Some(model.as_str())
+            });
+        }
+    }
+
+    /// Select a model from the popup and persist it.
+    fn on_openrouter_row_activated(&self, index: usize) {
+        let Some(model) = self.openrouter_models.borrow().get(index).cloned() else {
+            return;
+        };
+
+        *self.openrouter_selected.borrow_mut() = model.id.clone();
+        self.update_openrouter_value_label();
+
+        if let Some(cfg) = self.config.borrow().as_ref() {
+            cfg.borrow_mut().settings.openrouter_model = model.id;
+            cfg.borrow().save_settings();
+        }
+
+        self.fire_setting_changed(SettingKind::OpenrouterModel);
     }
 
     fn on_local_model_changed(&self) {
@@ -1905,21 +2204,27 @@ impl SettingsPanel {
             row.set_visible(vlm_type == "openrouter");
         }
 
-        // Populate OpenRouter combo from cached model list
-        if !settings.openrouter_model_cache.is_empty() {
-            if let Some(row) = priv_.openrouter_model_row.borrow().as_ref() {
-                let cache = &settings.openrouter_model_cache;
-                let model_strs: Vec<&str> = cache.iter().map(|s| s.as_str()).collect();
-                row.set_model(Some(&gtk::StringList::new(&model_strs)));
-
-                // Restore previously selected model
-                if !settings.openrouter_model.is_empty() {
-                    if let Some(idx) = cache.iter().position(|m| m == &settings.openrouter_model) {
-                        row.set_selected(idx as u32);
-                    }
-                }
-            }
+        // Restore the OpenRouter model list and its sort order. Older configs
+        // only cached the ids; sort by price or intelligence needs the
+        // metadata from the next API fetch.
+        *priv_.openrouter_selected.borrow_mut() = settings.openrouter_model.clone();
+        if settings.openrouter_model_meta.is_empty() {
+            *priv_.openrouter_models.borrow_mut() = settings
+                .openrouter_model_cache
+                .iter()
+                .map(|id| config::OpenrouterModel {
+                    id: id.clone(),
+                    ..Default::default()
+                })
+                .collect();
+        } else {
+            *priv_.openrouter_models.borrow_mut() = settings.openrouter_model_meta.clone();
         }
+        priv_
+            .openrouter_sort
+            .set(OpenrouterSort::from_key(&settings.openrouter_sort));
+        priv_.sync_openrouter_sort_buttons();
+        priv_.rebuild_openrouter_list(false);
 
         // Restore rendering settings
         if let Some(row) = priv_.renderer_row.borrow().as_ref() {
@@ -2045,7 +2350,7 @@ impl SettingsPanel {
     ///
     /// If the list is empty, the subtitle of the refresh row is updated to
     /// show an error message instead of silently discarding the result.
-    pub fn update_openrouter_models(&self, models: &[String]) {
+    pub fn update_openrouter_models(&self, models: &[OpenrouterModel]) {
         let priv_ = self.imp();
 
         // Always clear the loading state
@@ -2060,31 +2365,22 @@ impl SettingsPanel {
             return;
         }
 
-        // Remember the previously selected model
-        let prev_model = if let Some(cfg) = priv_.config.borrow().as_ref() {
-            cfg.borrow().settings.openrouter_model.clone()
-        } else {
-            String::new()
-        };
+        *priv_.openrouter_models.borrow_mut() = models.to_vec();
+        priv_.rebuild_openrouter_list(true);
 
-        // Update the combo row
-        if let Some(row) = priv_.openrouter_model_row.borrow().as_ref() {
-            let strs: Vec<&str> = models.iter().map(|s| s.as_str()).collect();
-            let new_list = gtk::StringList::new(&strs);
-            row.set_model(Some(&new_list));
-
-            // Try to restore the previously selected model
-            if !prev_model.is_empty() {
-                if let Some(idx) = models.iter().position(|m| m == &prev_model) {
-                    row.set_selected(idx as u32);
-                }
-            }
-        }
-
-        // Persist the model list to config cache
+        // Persist the metadata (for sorting after a restart) and the flat id
+        // cache the GPUI frontend and older builds read.
         if let Some(cfg) = priv_.config.borrow().as_ref() {
-            cfg.borrow_mut().settings.openrouter_model_cache = models.to_vec();
-            cfg.borrow().save_settings();
+            let sorted = priv_.openrouter_models.borrow().clone();
+            let selected = priv_.openrouter_selected.borrow().clone();
+            let mut manager = cfg.borrow_mut();
+            manager.settings.openrouter_model_meta = sorted.clone();
+            manager.settings.openrouter_model_cache =
+                sorted.iter().map(|model| model.id.clone()).collect();
+            if !selected.is_empty() {
+                manager.settings.openrouter_model = selected;
+            }
+            manager.save_settings();
         }
     }
 
@@ -2107,7 +2403,6 @@ impl SettingsPanel {
             priv_.device_row.borrow().clone(),
             priv_.vlm_type_row.borrow().clone(),
             priv_.gemini_model_row.borrow().clone(),
-            priv_.openrouter_model_row.borrow().clone(),
             priv_.upscale_ratio_row.borrow().clone(),
         ];
 
@@ -2115,6 +2410,9 @@ impl SettingsPanel {
             row.set_sensitive(sensitive);
         }
 
+        if let Some(row) = priv_.openrouter_model_row.borrow().as_ref() {
+            row.set_sensitive(sensitive);
+        }
         if let Some(row) = priv_.rtl_row.borrow().as_ref() {
             row.set_sensitive(sensitive);
         }
@@ -2257,17 +2555,7 @@ impl SettingsPanel {
         if let Some(cfg) = priv_.config.borrow().as_ref() {
             return cfg.borrow().settings.openrouter_model.clone();
         }
-        // Fallback: read from combo row
-        if let Some(row) = priv_.openrouter_model_row.borrow().as_ref() {
-            let idx = row.selected();
-            if let Some(model) = row.model().and_then(|m| m.item(idx)) {
-                return model
-                    .downcast_ref::<gtk::StringObject>()
-                    .map(|s| s.string().to_string())
-                    .unwrap_or_default();
-            }
-        }
-        String::new()
+        priv_.openrouter_selected.borrow().clone()
     }
 
     /// Get the local model path.

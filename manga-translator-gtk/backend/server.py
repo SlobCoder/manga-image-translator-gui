@@ -512,6 +512,23 @@ def handle_get_cached_translation(params: dict) -> Optional[str]:
 OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models"
 
 
+def _openrouter_price(entry: dict) -> float | None:
+    """Prompt price in USD per token, or None when the API omits it."""
+    try:
+        return float((entry.get("pricing") or {}).get("prompt"))
+    except (TypeError, ValueError):
+        return None
+
+
+def _openrouter_intelligence(entry: dict) -> float | None:
+    """Artificial Analysis intelligence index, or None when unscored."""
+    benchmarks = entry.get("benchmarks") or {}
+    try:
+        return float((benchmarks.get("artificial_analysis") or {}).get("intelligence_index"))
+    except (TypeError, ValueError):
+        return None
+
+
 def handle_fetch_openrouter_models(params: dict) -> list:
     """Fetch the current vision-capable models from the OpenRouter API.
 
@@ -520,7 +537,9 @@ def handle_fetch_openrouter_models(params: dict) -> list:
     exists in newer upstream checkouts, so on older installs the import failed
     and the GUI silently kept showing its cached (outdated) model list.
 
-    Returns a list of ``{"id": ..., "name": ...}`` dicts sorted by id.
+    Alongside the id and display name, each entry carries the prompt price and
+    the Artificial Analysis intelligence index (both optional), which the GUI
+    uses to sort the model popup.
     """
     import urllib.request
     import urllib.error
@@ -553,7 +572,14 @@ def handle_fetch_openrouter_models(params: dict) -> list:
         if "image" not in modalities and "image" not in modality:
             continue
 
-        models.append({"id": model_id, "name": entry.get("name") or model_id})
+        models.append(
+            {
+                "id": model_id,
+                "name": entry.get("name") or model_id,
+                "price": _openrouter_price(entry),
+                "intelligence": _openrouter_intelligence(entry),
+            }
+        )
 
     models.sort(key=lambda model: model["id"])
     logger.info("Fetched %d vision-capable models from OpenRouter", len(models))

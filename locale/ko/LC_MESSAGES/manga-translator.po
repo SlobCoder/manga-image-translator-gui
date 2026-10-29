@@ -719,3 +719,15 @@ msgstr "번역용 사용자 정의 저장 위치"
 
 msgid "Öffne Menü → Virtuelle Umgebung… um die Pfade zu konfigurieren"
 msgstr "메뉴 → 가상 환경… 열어서 경로 설정"
+
+msgid "Preis ↑"
+msgstr "가격 ↑"
+
+msgid "Preis ↓"
+msgstr "가격 ↓"
+
+msgid "Intelligenz ↑"
+msgstr "지능 ↑"
+
+msgid "Intelligenz ↓"
+msgstr "지능 ↓"

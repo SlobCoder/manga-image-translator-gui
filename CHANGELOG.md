@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Sortable OpenRouter model list** — the model popup carries a bar with
+  "Preis ↑/↓" and "Intelligenz ↑/↓". Price sorts on the prompt price reported
+  by the API, intelligence on the Artificial Analysis index; models without a
+  value stay at the end in both directions. The bar sits above the scrolled
+  list, so it stays visible while the list scrolls, and the active order is
+  highlighted. Model metadata and the chosen order are cached in the settings,
+  so both survive a restart.
+- **Scrolling model names in the OpenRouter popup** — model ids rarely fit the
+  popup. The list rows use a `MarqueeLabel`: ids that do not fit scroll back
+  and forth instead of being ellipsized, and the check mark stays pinned to the
+  right edge.
+
+### Fixed
+- **VLM settings did not appear after switching the mode** — starting in any
+  other mode and then selecting "VLM" revealed an empty `GtkRevealer`:
+  `set_config()` had hidden the `AdwPreferencesGroup` itself, while
+  `on_mode_changed()` only toggled the revealer. The revealer is now the only
+  visibility control, so the group is never hidden.
+- **OpenRouter model list stayed stale** — "Modellliste aktualisieren" imported
+  `manga_translator.vlm.mtpe.fetch_openrouter_models`, a module that only
+  exists in newer Python checkouts. The import failed, the fetch returned an
+  empty list and the GUI kept showing its cached models. The backend now
+  queries `/api/v1/models` itself with the standard library and keeps the
+  models that accept image input.
+
 ## [0.2.3] — 2026-10-26
 
 ### Changed
