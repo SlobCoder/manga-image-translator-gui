@@ -482,11 +482,6 @@ gridview child:hover {
 }
 
 /* Preview mode buttons */
-.preview-mode-btn {
-    padding: 4px 12px;
-    font-size: 0.85em;
-}
-
 /* ===================================================================
  * Settings Panel
  * =================================================================== */
@@ -775,7 +770,6 @@ paned > separator:active {
 .scroll-indicator-top,
 .scroll-indicator-bottom {
     min-height: 0;
-    pointer-events: none;
     transition: box-shadow 200ms ease;
 }
 

@@ -36,7 +36,15 @@ All notable changes to this project will be documented in this file.
   and forth instead of being ellipsized, and the check mark stays pinned to the
   right edge.
 
+### Changed
+- **Adwaita alignment** — the preview mode selector is now an `AdwToggleGroup`
+  instead of three grouped `GtkToggleButton`s, and the progress spinners are
+  `AdwSpinner`, which animates whenever it is visible.
+
 ### Fixed
+- **Invalid CSS property in the scroll indicators** — `pointer-events: none`
+  is not a GTK4 CSS property and produced a `Gtk-WARNING` on every start. The
+  scroll indicators are now made non-targetable in code instead.
 - **VLM settings did not appear after switching the mode** — starting in any
   other mode and then selecting "VLM" revealed an empty `GtkRevealer`:
   `set_config()` had hidden the `AdwPreferencesGroup` itself, while

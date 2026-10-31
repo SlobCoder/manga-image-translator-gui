@@ -76,7 +76,7 @@ pub(crate) struct Widgets {
     progress_bar: gtk::ProgressBar,
     progress_revealer: gtk::Revealer,
     pub(crate) btn_start: gtk::Button,
-    pub(crate) btn_start_spinner: gtk::Spinner,
+    pub(crate) btn_start_spinner: adw::Spinner,
     pub(crate) btn_start_label: gtk::Label,
     btn_log: gtk::Button,
     btn_home: gtk::Button,
@@ -791,7 +791,7 @@ fn build_status_bar(
     gtk::ProgressBar,
     gtk::Revealer,
     gtk::Button,
-    gtk::Spinner,
+    adw::Spinner,
     gtk::Label,
     gtk::Button,
 ) {
@@ -837,7 +837,7 @@ fn build_status_bar(
     btn_start.add_css_class("suggested-action");
 
     let btn_start_content = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    let btn_start_spinner = gtk::Spinner::new();
+    let btn_start_spinner = adw::Spinner::new();
     btn_start_spinner.set_visible(false);
     let btn_start_label = gtk::Label::new(Some(&i18n::t("Übersetzen")));
     btn_start_content.append(&btn_start_spinner);
@@ -1596,7 +1596,6 @@ fn start_translation(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowSt
         let w = widgets.borrow();
         w.settings_panel.set_sensitive(false);
         w.file_browser.set_sensitive(false);
-        w.btn_start_spinner.stop();
         w.btn_start_spinner.set_visible(false);
         w.btn_start_label.set_label(&i18n::t("Abbrechen"));
         w.btn_start.remove_css_class("suggested-action");
@@ -1675,7 +1674,6 @@ fn start_translation(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowSt
                                 w.file_browser.set_sensitive(true);
 
                                 // Stop spinner, swap to checkmark label
-                                w.btn_start_spinner.stop();
                                 w.btn_start_spinner.add_css_class("spinner-fading");
                                 w.btn_start_label.set_label("✓");
 
@@ -1736,7 +1734,6 @@ fn start_translation(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowSt
                                 let w = w.borrow();
                                 w.settings_panel.set_sensitive(true);
                                 w.file_browser.set_sensitive(true);
-                                w.btn_start_spinner.stop();
                                 w.btn_start_spinner.add_css_class("spinner-fading");
                                 let spinner = w.btn_start_spinner.clone();
                                 glib::timeout_add_local(
@@ -1969,17 +1966,15 @@ fn trigger_nav_flash(btn: &gtk::Button) {
 fn trigger_refresh_spin(btn: &gtk::Button) {
     // Prevent double-trigger while spinner is already active
     if let Some(child) = btn.child() {
-        if child.downcast::<gtk::Spinner>().is_ok() {
+        if child.downcast::<adw::Spinner>().is_ok() {
             return;
         }
     }
-    let spinner = gtk::Spinner::new();
-    spinner.start();
+    let spinner = adw::Spinner::new();
     btn.set_child(Some(&spinner));
 
     let btn_clone = btn.clone();
     glib::timeout_add_local(std::time::Duration::from_millis(1000), move || {
-        spinner.stop();
         let image = gtk::Image::from_icon_name("view-refresh-symbolic");
         btn_clone.set_child(Some(&image));
         glib::ControlFlow::Break

@@ -1659,9 +1659,11 @@ impl SettingsPanelPrivate {
         let scroll_top = gtk::Box::new(gtk::Orientation::Vertical, 0);
         scroll_top.add_css_class("scroll-indicator-top");
         scroll_top.add_css_class("scroll-hidden");
+        scroll_top.set_can_target(false);
 
         let scroll_bottom = gtk::Box::new(gtk::Orientation::Vertical, 0);
         scroll_bottom.add_css_class("scroll-indicator-bottom");
+        scroll_bottom.set_can_target(false);
 
         wrapper.append(&scroll_top);
         wrapper.append(&scrolled);

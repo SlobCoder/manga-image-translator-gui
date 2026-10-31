@@ -84,6 +84,26 @@ pub fn register_toggle(button: &gtk::ToggleButton, msgid: &'static str) {
     }));
 }
 
+/// Register an adw::ToggleGroup's toggles for retranslation.
+///
+/// *entries* maps each toggle's stable name to its msgid; it must live for the
+/// rest of the process, which a module-level `const` guarantees.
+pub fn register_toggle_group(
+    group: &adw::ToggleGroup,
+    entries: &'static [(&'static str, &'static str)],
+) {
+    let weak = group.downgrade();
+    register(Box::new(move || {
+        if let Some(g) = weak.upgrade() {
+            for (name, msgid) in entries {
+                if let Some(toggle) = g.toggle_by_name(name) {
+                    toggle.set_label(Some(&t(msgid)));
+                }
+            }
+        }
+    }));
+}
+
 /// Register an adw::PreferencesGroup title for retranslation.
 pub fn register_group_title(group: &adw::PreferencesGroup, msgid: &'static str) {
     let weak = group.downgrade();

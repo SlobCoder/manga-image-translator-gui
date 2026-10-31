@@ -23,6 +23,14 @@ use std::rc::Rc;
 
 use crate::i18n;
 
+/// Names and msgids of the three preview modes, shared by the toggle group
+/// and its retranslation hook.
+const MODE_TOGGLES: &[(&str, &str)] = &[
+    ("original", "Original"),
+    ("translated", "Übersetzung"),
+    ("compare", "Vergleich"),
+];
+
 // ---------------------------------------------------------------------------
 // Off-thread page decoding
 // ---------------------------------------------------------------------------
@@ -166,6 +174,17 @@ impl Default for PreviewMode {
     }
 }
 
+impl PreviewMode {
+    /// Stable name of the matching toggle in the segmented control.
+    fn toggle_name(self) -> &'static str {
+        match self {
+            PreviewMode::Original => "original",
+            PreviewMode::Translated => "translated",
+            PreviewMode::Compare => "compare",
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Preview widget (GObject)
 // ---------------------------------------------------------------------------
@@ -208,15 +227,8 @@ pub struct PreviewPrivate {
     translated_surface: RefCell<Option<cairo::ImageSurface>>,
     /// Slider line widget (vertical bar in compare mode).
     slider_widget: RefCell<Option<gtk::DrawingArea>>,
-    /// Mode toggle buttons box.
-    #[allow(dead_code)]
-    mode_buttons: RefCell<Option<gtk::Box>>,
-    /// "Original" toggle button.
-    btn_original: RefCell<Option<gtk::ToggleButton>>,
-    /// "Translated" toggle button.
-    btn_translated: RefCell<Option<gtk::ToggleButton>>,
-    /// "Compare" toggle button.
-    btn_compare: RefCell<Option<gtk::ToggleButton>>,
+    /// Adwaita segmented control for the preview modes.
+    mode_group: RefCell<Option<adw::ToggleGroup>>,
     /// Info label (filename, dimensions).
     info_label: RefCell<Option<gtk::Label>>,
     /// Dimensions label.
@@ -240,10 +252,7 @@ impl Default for PreviewPrivate {
             translated_texture: RefCell::new(None),
             translated_surface: RefCell::new(None),
             slider_widget: RefCell::new(None),
-            mode_buttons: RefCell::new(None),
-            btn_original: RefCell::new(None),
-            btn_translated: RefCell::new(None),
-            btn_compare: RefCell::new(None),
+            mode_group: RefCell::new(None),
             info_label: RefCell::new(None),
             dimensions_label: RefCell::new(None),
         }
@@ -283,6 +292,15 @@ fn text_extents_zeroed() -> cairo::TextExtents {
 }
 
 impl PreviewPrivate {
+    /// Point the segmented control at *mode*.
+    fn sync_mode_group(&self, mode: PreviewMode) {
+        if let Some(group) = self.mode_group.borrow().as_ref() {
+            if group.active_name().as_deref() != Some(mode.toggle_name()) {
+                group.set_active_name(Some(mode.toggle_name()));
+            }
+        }
+    }
+
     /// Build the preview UI.
     fn build_ui(&self, obj: &Preview) {
         let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -301,31 +319,18 @@ impl PreviewPrivate {
         i18n::register_label(&title, "Vorschau");
         header.append(&title);
 
-        // Mode toggle buttons (Original | Translated | Compare)
-        let mode_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        mode_box.add_css_class("linked");
-        mode_box.set_hexpand(true);
-        mode_box.set_halign(gtk::Align::End);
-
-        let btn_original = gtk::ToggleButton::with_label(&i18n::t("Original"));
-        btn_original.set_active(true);
-        btn_original.add_css_class("preview-mode-btn");
-        i18n::register_toggle(&btn_original, "Original");
-
-        let btn_translated = gtk::ToggleButton::with_label(&i18n::t("Übersetzung"));
-        btn_translated.set_group(Some(&btn_original));
-        btn_translated.add_css_class("preview-mode-btn");
-        i18n::register_toggle(&btn_translated, "Übersetzung");
-
-        let btn_compare = gtk::ToggleButton::with_label(&i18n::t("Vergleich"));
-        btn_compare.set_group(Some(&btn_original));
-        btn_compare.add_css_class("preview-mode-btn");
-        i18n::register_toggle(&btn_compare, "Vergleich");
-
-        mode_box.append(&btn_original);
-        mode_box.append(&btn_translated);
-        mode_box.append(&btn_compare);
-        header.append(&mode_box);
+        // Adwaita segmented control (Original | Translation | Compare).
+        let mode_group = adw::ToggleGroup::new();
+        mode_group.set_halign(gtk::Align::End);
+        for &(name, msgid) in MODE_TOGGLES {
+            let toggle = adw::Toggle::new();
+            toggle.set_name(Some(name));
+            toggle.set_label(Some(&i18n::t(msgid)));
+            mode_group.add(toggle);
+        }
+        mode_group.set_active_name(Some("original"));
+        i18n::register_toggle_group(&mode_group, MODE_TOGGLES);
+        header.append(&mode_group);
 
         vbox.append(&header);
 
@@ -630,34 +635,17 @@ impl PreviewPrivate {
 
         vbox.append(&info_bar);
 
-        // -- Connect mode toggle buttons --
-        btn_original.connect_toggled(clone!(
+        // -- Connect the mode toggle group --
+        mode_group.connect_active_name_notify(clone!(
             #[weak(rename_to = this)]
             self,
-            move |btn| {
-                if btn.is_active() {
-                    this.set_mode(PreviewMode::Original);
-                }
-            }
-        ));
-
-        btn_translated.connect_toggled(clone!(
-            #[weak(rename_to = this)]
-            self,
-            move |btn| {
-                if btn.is_active() {
-                    this.set_mode(PreviewMode::Translated);
-                }
-            }
-        ));
-
-        btn_compare.connect_toggled(clone!(
-            #[weak(rename_to = this)]
-            self,
-            move |btn| {
-                if btn.is_active() {
-                    this.set_mode(PreviewMode::Compare);
-                }
+            move |group| {
+                let mode = match group.active_name().as_deref() {
+                    Some("translated") => PreviewMode::Translated,
+                    Some("compare") => PreviewMode::Compare,
+                    _ => PreviewMode::Original,
+                };
+                this.set_mode(mode);
             }
         ));
 
@@ -669,9 +657,7 @@ impl PreviewPrivate {
         *self.original_picture.borrow_mut() = Some(original_picture);
         *self.translated_overlay.borrow_mut() = Some(translated_overlay);
         *self.slider_widget.borrow_mut() = Some(slider_widget);
-        *self.btn_original.borrow_mut() = Some(btn_original);
-        *self.btn_translated.borrow_mut() = Some(btn_translated);
-        *self.btn_compare.borrow_mut() = Some(btn_compare);
+        *self.mode_group.borrow_mut() = Some(mode_group);
         *self.info_label.borrow_mut() = Some(info_label);
         *self.dimensions_label.borrow_mut() = Some(dimensions_label);
 
@@ -2109,9 +2095,7 @@ impl Preview {
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
             label.set_label(name);
         }
-        if let Some(btn) = priv_.btn_original.borrow().as_ref() {
-            btn.set_active(true);
-        }
+        priv_.sync_mode_group(PreviewMode::Original);
 
         // Decode on a background thread; only texture creation stays on the main thread.
         let path_buf = path.to_path_buf();
@@ -2185,9 +2169,7 @@ impl Preview {
                 if let Some(stack) = priv_.stack.borrow().as_ref() {
                     stack.set_visible_child_name("images");
                 }
-                if let Some(btn) = priv_.btn_translated.borrow().as_ref() {
-                    btn.set_active(true);
-                }
+                priv_.sync_mode_group(PreviewMode::Translated);
             }
         });
     }
@@ -2279,17 +2261,11 @@ impl Preview {
 
             // Auto-switch to compare mode if both images are available
             if has_original && has_translated {
-                if let Some(btn) = priv_.btn_compare.borrow().as_ref() {
-                    btn.set_active(true);
-                }
+                priv_.sync_mode_group(PreviewMode::Compare);
             } else if has_original {
-                if let Some(btn) = priv_.btn_original.borrow().as_ref() {
-                    btn.set_active(true);
-                }
+                priv_.sync_mode_group(PreviewMode::Original);
             } else if has_translated {
-                if let Some(btn) = priv_.btn_translated.borrow().as_ref() {
-                    btn.set_active(true);
-                }
+                priv_.sync_mode_group(PreviewMode::Translated);
             }
         });
     }
@@ -2321,9 +2297,7 @@ impl Preview {
         }
 
         // Reset to original mode
-        if let Some(btn) = priv_.btn_original.borrow().as_ref() {
-            btn.set_active(true);
-        }
+        priv_.sync_mode_group(PreviewMode::Original);
     }
 
     /// Set the preview mode programmatically.
@@ -2331,24 +2305,8 @@ impl Preview {
         let priv_ = self.imp();
         priv_.set_mode(mode);
 
-        // Update toggle buttons
-        match mode {
-            PreviewMode::Original => {
-                if let Some(btn) = priv_.btn_original.borrow().as_ref() {
-                    btn.set_active(true);
-                }
-            }
-            PreviewMode::Translated => {
-                if let Some(btn) = priv_.btn_translated.borrow().as_ref() {
-                    btn.set_active(true);
-                }
-            }
-            PreviewMode::Compare => {
-                if let Some(btn) = priv_.btn_compare.borrow().as_ref() {
-                    btn.set_active(true);
-                }
-            }
-        }
+        // Keep the segmented control in sync without re-entering set_mode.
+        priv_.sync_mode_group(mode);
     }
 
     /// Get the current preview mode.
