@@ -14,7 +14,7 @@
 # Environment variables:
 #   ARCH            — Target architecture (default: x86_64)
 #   APP_NAME        — Application name (default: manga-translator-gtk)
-#   APP_VERSION     — Version string (default: 0.1.0)
+#   APP_VERSION     — Version string (default: the version in manga-translator-gtk/Cargo.toml)
 #   LINUXDEPLOY_URL — Override linuxdeploy download URL
 #   OUTPUT_DIR      — Where to place the final AppImage (default: dist/)
 set -euo pipefail
@@ -22,10 +22,9 @@ set -euo pipefail
 # ── Configuration ─────────────────────────────────────────────────────────────
 ARCH="${ARCH:-$(uname -m)}"
 APP_NAME="manga-translator-gtk"
-# Must match APP_ID in manga-translator-gtk/src/main.rs: GTK sets it as the
+# Must match APP_ID in manga-translator-gtk/src/lib.rs: GTK sets it as the
 # Wayland xdg_toplevel app_id, and the desktop file has to be named after it.
 APP_ID="com.mangatranslator.gui"
-APP_VERSION="${APP_VERSION:-0.2.0}"
 OUTPUT_DIR="${OUTPUT_DIR:-dist}"
 SKIP_BUILD=0
 CLEAN=0
@@ -34,6 +33,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="${SCRIPT_DIR}"
 GTK_DIR="${PROJECT_ROOT}/manga-translator-gtk"
 PACKAGING_DIR="${PROJECT_ROOT}/packaging"
+# Single source of truth for the release number is the crate version.
+APP_VERSION="${APP_VERSION:-$(sed -n 's/^version = "\(.*\)"$/\1/p' "${GTK_DIR}/Cargo.toml" | head -n 1)}"
 
 APPDIR="${PROJECT_ROOT}/build/${APP_NAME}.AppDir"
 BINARY="${GTK_DIR}/target/release/${APP_NAME}"
@@ -200,9 +201,9 @@ ok "Backend installed"
 
 # AppStream metainfo
 info "Installing metainfo..."
-METAINFO_SRC="${PACKAGING_DIR}/metainfo/io.github.manga_translator_gtk.appdata.xml"
+METAINFO_SRC="${PACKAGING_DIR}/metainfo/${APP_ID}.metainfo.xml"
 if [ -f "$METAINFO_SRC" ]; then
-    cp "$METAINFO_SRC" "${APPDIR}/usr/share/metainfo/io.github.manga_translator_gtk.appdata.xml"
+    cp "$METAINFO_SRC" "${APPDIR}/usr/share/metainfo/${APP_ID}.metainfo.xml"
     ok "Metainfo installed"
 else
     warn "Metainfo not found at ${METAINFO_SRC} (non-critical)"

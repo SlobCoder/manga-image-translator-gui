@@ -92,7 +92,7 @@ modules:
       - gtk-update-icon-cache ${FLATPAK_DEST}/share/icons/hicolor || true
 
       # AppStream metainfo
-      - install -Dm644 packaging/metainfo/io.github.manga_translator_gtk.appdata.xml
+      - install -Dm644 packaging/metainfo/com.mangatranslator.gui.metainfo.xml
         ${FLATPAK_DEST}/share/metainfo/com.mangatranslator.gui.metainfo.xml
 
       # Python backend

@@ -112,7 +112,7 @@
     </release>
     <release version="0.2.0" date="2026-04-15">
       <description>
-        <p>i18n and packaging improvements.</p>
+        <p>Internationalization and packaging improvements.</p>
         <ul>
           <li>Live UI retranslation for dropdowns and menus</li>
           <li>Italian translation added (8 → 9 languages)</li>
@@ -140,7 +140,7 @@
 
   <content_rating type="oars-1.1" />
 
-  <developer id="io.github.manga_translator_gtk">
+  <developer id="com.mangatranslator">
     <name>SLOB-CODER</name>
   </developer>
 </component>
