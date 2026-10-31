@@ -2228,9 +2228,20 @@ impl Preview {
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
                 label.set_label(name);
             }
+        } else {
+            *priv_.original_path.borrow_mut() = None;
         }
-        if let Some(path) = translated {
-            *priv_.translated_path.borrow_mut() = Some(path.to_path_buf());
+        match translated {
+            Some(path) => *priv_.translated_path.borrow_mut() = Some(path.to_path_buf()),
+            None => {
+                // Do not leave the previous page's translation on screen.
+                *priv_.translated_path.borrow_mut() = None;
+                *priv_.translated_texture.borrow_mut() = None;
+                *priv_.translated_surface.borrow_mut() = None;
+                if let Some(overlay) = priv_.translated_overlay.borrow().as_ref() {
+                    overlay.queue_draw();
+                }
+            }
         }
 
         // Capture for mode switching after both loads complete

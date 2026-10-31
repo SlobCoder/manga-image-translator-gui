@@ -57,6 +57,8 @@ pub struct WindowState {
     pub log_dialog_open: bool,
     /// Log messages collected during translation.
     pub log_entries: Rc<RefCell<Vec<String>>>,
+    /// Files written by the most recent translation in this session.
+    pub translated_outputs: Vec<PathBuf>,
 }
 
 // ---------------------------------------------------------------------------
@@ -132,6 +134,7 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
         error_count: 0,
         log_dialog_open: false,
         log_entries: Rc::new(RefCell::new(Vec::new())),
+        translated_outputs: Vec::new(),
     }));
 
     // ── Configure Python bridge with saved paths ─────────────────────────
@@ -869,9 +872,33 @@ fn build_status_bar(
 // FileBrowser signal connections
 // ---------------------------------------------------------------------------
 
+/// Find the translated counterpart of *original*.
+///
+/// Checks the files written by the current session first (the backend may use a
+/// custom output directory), then the sibling `<folder>-translated` directory
+/// the backend writes to by default.
+fn find_translated_path(original: &Path, session_outputs: &[PathBuf]) -> Option<PathBuf> {
+    let stem = original.file_stem()?;
+
+    if let Some(path) = session_outputs
+        .iter()
+        .find(|path| path.file_stem() == Some(stem))
+    {
+        return Some(path.clone());
+    }
+
+    let parent = original.parent()?;
+    let folder = parent.file_name()?.to_string_lossy();
+    let candidate = parent
+        .with_file_name(format!("{}-translated", folder))
+        .join(original.file_name()?);
+    candidate.is_file().then_some(candidate)
+}
+
 fn connect_file_browser_signals(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowState>>) {
     // Selection changed → update preview + status bar
     let w = widgets.clone();
+    let st = state.clone();
     widgets
         .borrow()
         .file_browser
@@ -882,12 +909,14 @@ fn connect_file_browser_signals(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCe
 
             let files = selection.all_selected_files();
 
-            // Update preview
-            if files.len() == 1 {
-                w.borrow().preview.load_original(&files[0]);
-            } else if files.len() > 1 {
-                // Multiple files — show first image as preview
-                w.borrow().preview.load_original(&files[0]);
+            // Update preview. Look up the translated counterpart as well, so the
+            // comparison works after a restart and not only right after a
+            // translation in this session.
+            if let Some(first) = files.first() {
+                let translated = find_translated_path(first, &st.borrow().translated_outputs);
+                w.borrow()
+                    .preview
+                    .load_pair(Some(first), translated.as_deref());
             } else {
                 w.borrow().preview.clear();
             }
@@ -1659,6 +1688,7 @@ fn start_translation(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowSt
                     match result {
                         Ok(outputs) => {
                             let count = outputs.len();
+                            s.borrow_mut().translated_outputs = outputs.clone();
                             let text = format!(
                                 "{} {} {}",
                                 i18n::t("Fertig!"),
@@ -2093,4 +2123,46 @@ fn apply_saved_state(
 
     // Initial API key pre-flight check
     super::dialogs::check_api_key_status(widgets, state);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_translated_path;
+    use std::fs;
+
+    #[test]
+    fn finds_translation_in_sibling_folder() {
+        let root = std::env::temp_dir().join(format!("mtt-sibling-{}", std::process::id()));
+        let chapter = root.join("chapter");
+        let translated = root.join("chapter-translated");
+        fs::create_dir_all(&chapter).unwrap();
+        fs::create_dir_all(&translated).unwrap();
+
+        let original = chapter.join("001.png");
+        fs::write(&original, b"x").unwrap();
+        assert_eq!(find_translated_path(&original, &[]), None);
+
+        let output = translated.join("001.png");
+        fs::write(&output, b"y").unwrap();
+        assert_eq!(find_translated_path(&original, &[]), Some(output));
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn prefers_the_output_of_the_current_session() {
+        let root = std::env::temp_dir().join(format!("mtt-session-{}", std::process::id()));
+        let chapter = root.join("chapter");
+        fs::create_dir_all(&chapter).unwrap();
+        let original = chapter.join("001.png");
+        fs::write(&original, b"x").unwrap();
+
+        let session = root.join("custom-output").join("001.png");
+        assert_eq!(
+            find_translated_path(&original, &[session.clone()]),
+            Some(session)
+        );
+
+        fs::remove_dir_all(&root).unwrap();
+    }
 }
