@@ -64,6 +64,10 @@ All notable changes to this project will be documented in this file.
   `AdwSpinner`, which animates whenever it is visible.
 
 ### Fixed
+- **OpenRouter dialog separator moved while scrolling** — the detail column sized
+  itself from its labels, so the divider wandered as the selected model
+  changed. It now lives in a fixed 253 px viewport (one third of the 760 px
+  dialog), and the list keeps the other two thirds.
 - **Comparison did not work after a restart** — selecting a page in an already
   translated chapter only loaded the original, because the GTK frontend never
   looked for the translated counterpart. It now searches the current session's

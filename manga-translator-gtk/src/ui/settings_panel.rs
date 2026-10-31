@@ -116,6 +116,8 @@ fn detail_block(msgid: &'static str, value: &gtk::Label) -> gtk::Box {
     i18n::register_label(&caption, msgid);
 
     value.set_xalign(0.0);
+    value.set_ellipsize(pango::EllipsizeMode::End);
+    value.set_max_width_chars(24);
 
     block.append(&caption);
     block.append(value);
@@ -284,7 +286,7 @@ pub struct SettingsPanelPrivate {
     /// Search field above the model list.
     openrouter_search: RefCell<Option<gtk::SearchEntry>>,
     /// Side panel in the popup with the selected model's numbers.
-    openrouter_details_title: RefCell<Option<gtk::Label>>,
+    openrouter_details_title: RefCell<Option<MarqueeLabel>>,
     openrouter_details_input: RefCell<Option<gtk::Label>>,
     openrouter_details_output: RefCell<Option<gtk::Label>>,
     openrouter_details_intelligence: RefCell<Option<gtk::Label>>,
@@ -830,9 +832,7 @@ impl SettingsPanelPrivate {
             label.set_hexpand(true);
             vbox.append(&label);
 
-            let details = gtk::Label::new(None);
-            details.set_xalign(0.0);
-            details.set_ellipsize(pango::EllipsizeMode::End);
+            let details = MarqueeLabel::new();
             details.add_css_class("caption");
             details.add_css_class("dim-label");
             vbox.append(&details);
@@ -862,7 +862,7 @@ impl SettingsPanelPrivate {
                 if let Some(label) = vbox.first_child().and_downcast::<MarqueeLabel>() {
                     label.set_text(&model.id);
                 }
-                if let Some(details) = vbox.last_child().and_downcast::<gtk::Label>() {
+                if let Some(details) = vbox.last_child().and_downcast::<MarqueeLabel>() {
                     let input = format_token_price(model.price);
                     let output = format_token_price(model.completion);
                     let intelligence = format_score(model.intelligence);
@@ -916,16 +916,14 @@ impl SettingsPanelPrivate {
 
         // Details of the selected model.
         let details_panel = gtk::Box::new(gtk::Orientation::Vertical, 8);
-        details_panel.set_size_request(150, -1);
         details_panel.set_halign(gtk::Align::Fill);
+        details_panel.set_hexpand(true);
         details_panel.set_margin_top(9);
         details_panel.set_margin_bottom(9);
         details_panel.set_margin_start(12);
         details_panel.set_margin_end(12);
 
-        let openrouter_details_title = gtk::Label::new(None);
-        openrouter_details_title.set_xalign(0.0);
-        openrouter_details_title.set_wrap(true);
+        let openrouter_details_title = MarqueeLabel::new();
         openrouter_details_title.add_css_class("heading");
         details_panel.append(&openrouter_details_title);
 
@@ -946,6 +944,16 @@ impl SettingsPanelPrivate {
         list_scrolled.set_hexpand(true);
         list_scrolled.set_child(Some(&openrouter_list_view));
 
+        // One third of the 760 px dialog: a fixed viewport keeps the separator
+        // in place while rows scroll and long names animate.
+        let details_scrolled = gtk::ScrolledWindow::new();
+        details_scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        details_scrolled.set_propagate_natural_width(false);
+        details_scrolled.set_size_request(253, -1);
+        details_scrolled.set_hexpand(false);
+        details_scrolled.set_vexpand(true);
+        details_scrolled.set_child(Some(&details_panel));
+
         let content_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
         content_box.set_vexpand(true);
         content_box.append(&list_scrolled);
@@ -953,7 +961,7 @@ impl SettingsPanelPrivate {
         details_separator.set_margin_top(6);
         details_separator.set_margin_bottom(6);
         content_box.append(&details_separator);
-        content_box.append(&details_panel);
+        content_box.append(&details_scrolled);
 
         // Narrow dialogs stack the details below the list.
         let narrow = adw::Breakpoint::new(
