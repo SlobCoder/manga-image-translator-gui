@@ -112,6 +112,12 @@ All notable changes to this project will be documented in this file.
   empty list and the GUI kept showing its cached models. The backend now
   queries `/api/v1/models` itself with the standard library and keeps the
   models that accept image input.
+- **About dialog showed stale facts** — it reported version 0.2.0, drew the
+  generic graphics icon, and pointed its website and issue tracker at the
+  upstream Python backend. It now takes the version from the crate, shows the
+  icon installed under the application ID (the generic one only in a dev build
+  without an icon theme entry), links to this repository and credits the backend
+  in its own section.
 
 ## [0.2.3] — 2026-10-26
 

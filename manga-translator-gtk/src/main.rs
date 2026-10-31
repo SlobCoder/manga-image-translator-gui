@@ -9,7 +9,7 @@
 // On Linux this attribute has no effect.
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
-use manga_translator_gtk::{i18n, ui};
+use manga_translator_gtk::{APP_ID, i18n, ui};
 
 use adw::prelude::*;
 use gtk::gdk::Display;
@@ -17,8 +17,6 @@ use gtk::gio;
 use gtk::glib;
 use std::fs::File;
 use std::io::Write;
-
-const APP_ID: &str = "com.mangatranslator.gui";
 
 /// Custom CSS for the application (accent colors, animations, widgets)
 const APP_CSS: &str = include_str!("../resources/style.css");

@@ -14,3 +14,9 @@ pub mod i18n;
 pub mod ui;
 
 pub use manga_translator_core::{config, ipc_bridge};
+
+/// Application ID.
+///
+/// Also the name of the desktop entry and of the installed icon, so the
+/// packaging (`flatpak/`, `build-appimage.sh`) has to use the same string.
+pub const APP_ID: &str = "com.mangatranslator.gui";

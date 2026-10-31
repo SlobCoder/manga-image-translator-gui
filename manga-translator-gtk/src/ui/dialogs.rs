@@ -1115,25 +1115,45 @@ fn is_valid_hex_color(s: &str) -> bool {
 pub fn show_about_dialog(parent: &impl IsA<gtk::Widget>) {
     let about = adw::AboutDialog::builder()
         .application_name("Manga Translator")
-        .application_icon("applications-graphics")
-        .version("0.2.0")
+        .application_icon(app_icon_name())
+        .version(env!("CARGO_PKG_VERSION"))
         .comments(&i18n::t(
             "Ein GUI für Manga Image Translator — geschrieben in Rust mit GTK4/libadwaita",
         ))
-        .developer_name("Manga Translator Team")
+        .developer_name("SLOB-CODER")
+        .developers(["SLOB-CODER", "Contributors"])
         .license_type(gtk::License::MitX11)
-        .website("https://github.com/zyddnys/manga-image-translator")
-        .issue_url("https://github.com/zyddnys/manga-image-translator/issues")
+        .website("https://github.com/SlobCoder/manga-image-translator-gui")
+        .issue_url("https://github.com/SlobCoder/manga-image-translator-gui/issues")
         .build();
 
-    about.add_credit_section(Some("Rust GUI"), &["SLOB-CODER", "Contributors"]);
-    about.add_credit_section(Some("Python Backend"), &["zyddnys", "Contributors"]);
+    about.add_credit_section(Some("Python-Backend"), &["zyddnys", "Contributors"]);
     about.add_credit_section(
         Some("Powered by"),
-        &["GTK4", "libadwaita", "gettext", "MangaTranslator"],
+        &[
+            "GTK4",
+            "libadwaita",
+            "OpenRouter",
+            "Google Gemini",
+            "Artificial Analysis",
+        ],
     );
 
     about.present(Some(parent));
+}
+
+/// Name of the icon the about dialog should show.
+///
+/// Flatpak, AppImage and the Windows package install the application icon under
+/// the application ID. A plain `cargo run` has no icon theme entry for it, so
+/// fall back to the generic graphics icon instead of rendering a broken image.
+fn app_icon_name() -> &'static str {
+    match Display::default() {
+        Some(display) if gtk::IconTheme::for_display(&display).has_icon(crate::APP_ID) => {
+            crate::APP_ID
+        }
+        _ => "applications-graphics",
+    }
 }
 
 // ---------------------------------------------------------------------------
