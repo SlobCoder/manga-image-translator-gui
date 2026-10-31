@@ -776,3 +776,6 @@ msgstr "已翻译"
 
 msgid "Modell auswählen"
 msgstr "选择模型"
+
+msgid "Input {input} · Output {output} · Intelligenz {intel}"
+msgstr "输入 {input} · 输出 {output} · 智能 {intel}"

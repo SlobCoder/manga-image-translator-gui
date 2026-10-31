@@ -776,3 +776,6 @@ msgstr "번역됨"
 
 msgid "Modell auswählen"
 msgstr "모델 선택"
+
+msgid "Input {input} · Output {output} · Intelligenz {intel}"
+msgstr "입력 {input} · 출력 {output} · 지능 {intel}"

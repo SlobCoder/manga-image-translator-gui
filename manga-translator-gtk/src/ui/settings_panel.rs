@@ -823,9 +823,21 @@ impl SettingsPanelPrivate {
             hbox.set_margin_bottom(6);
             hbox.set_margin_start(12);
             hbox.set_margin_end(12);
+
+            let vbox = gtk::Box::new(gtk::Orientation::Vertical, 2);
+            vbox.set_hexpand(true);
             let label = MarqueeLabel::new();
             label.set_hexpand(true);
-            hbox.append(&label);
+            vbox.append(&label);
+
+            let details = gtk::Label::new(None);
+            details.set_xalign(0.0);
+            details.set_ellipsize(pango::EllipsizeMode::End);
+            details.add_css_class("caption");
+            details.add_css_class("dim-label");
+            vbox.append(&details);
+
+            hbox.append(&vbox);
             let check = gtk::Image::from_icon_name("object-select-symbolic");
             check.set_opacity(0.0);
             hbox.append(&check);
@@ -844,8 +856,21 @@ impl SettingsPanelPrivate {
                 let Some(hbox) = item.child().and_downcast::<gtk::Box>() else {
                     return;
                 };
-                if let Some(label) = hbox.first_child().and_downcast::<MarqueeLabel>() {
+                let Some(vbox) = hbox.first_child().and_downcast::<gtk::Box>() else {
+                    return;
+                };
+                if let Some(label) = vbox.first_child().and_downcast::<MarqueeLabel>() {
                     label.set_text(&model.id);
+                }
+                if let Some(details) = vbox.last_child().and_downcast::<gtk::Label>() {
+                    let input = format_token_price(model.price);
+                    let output = format_token_price(model.completion);
+                    let intelligence = format_score(model.intelligence);
+                    let text = i18n::t("Input {input} · Output {output} · Intelligenz {intel}")
+                        .replace("{input}", &input)
+                        .replace("{output}", &output)
+                        .replace("{intel}", &intelligence);
+                    details.set_text(&text);
                 }
                 if let Some(check) = hbox.last_child().and_downcast::<gtk::Image>() {
                     let selected = *this.openrouter_selected.borrow() == model.id;

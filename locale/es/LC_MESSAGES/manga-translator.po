@@ -776,3 +776,6 @@ msgstr "Traducido"
 
 msgid "Modell auswählen"
 msgstr "Elegir modelo"
+
+msgid "Input {input} · Output {output} · Intelligenz {intel}"
+msgstr "Entrada {input} · Salida {output} · Inteligencia {intel}"

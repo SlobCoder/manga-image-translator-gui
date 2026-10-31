@@ -599,3 +599,6 @@ msgstr "Übersetzt"
 
 msgid "Modell auswählen"
 msgstr "Modell auswählen"
+
+msgid "Input {input} · Output {output} · Intelligenz {intel}"
+msgstr "Input {input} · Output {output} · Intelligenz {intel}"

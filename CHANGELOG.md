@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Model rows show their numbers** — each entry in the OpenRouter picker now
+  carries a second line with the input price, output price and intelligence
+  index, so the list is usable without the detail pane.
 - **Previous/next page buttons in the preview** — the preview header now carries
   ‹ and › buttons next to the mode selector, matching the GPUI frontend. They
   step through the visible images, move the file-browser selection with them
