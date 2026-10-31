@@ -1753,6 +1753,81 @@ impl FileBrowser {
         priv_.state.borrow().selection.all_selected_files()
     }
 
+    /// Whether a previous/next page exists for the current selection.
+    pub fn navigation_state(&self) -> (bool, bool) {
+        let priv_ = imp(self);
+        let state = priv_.state.borrow();
+        let images: Vec<&Path> = state
+            .items
+            .iter()
+            .filter(|item| item.is_image())
+            .map(|item| item.path())
+            .collect();
+        let Some(anchor) = state.selection.all_selected_files().first().cloned() else {
+            return (false, false);
+        };
+        let Some(index) = images.iter().position(|path| *path == anchor.as_path()) else {
+            return (false, false);
+        };
+        (index > 0, index + 1 < images.len())
+    }
+
+    /// Select the page *delta* positions after the currently shown one.
+    pub fn select_next(&self, delta: isize) {
+        let priv_ = imp(self);
+        let target = {
+            let state = priv_.state.borrow();
+            let images: Vec<PathBuf> = state
+                .items
+                .iter()
+                .filter(|item| item.is_image())
+                .map(|item| item.path().to_path_buf())
+                .collect();
+            let Some(anchor) = state.selection.all_selected_files().first().cloned() else {
+                return;
+            };
+            let Some(index) = images.iter().position(|path| *path == anchor) else {
+                return;
+            };
+            let next = index as isize + delta;
+            if next < 0 || next as usize >= images.len() {
+                return;
+            }
+            images[next as usize].clone()
+        };
+        self.select_only(&target);
+    }
+
+    /// Select exactly *path* and update the item highlighting.
+    pub fn select_only(&self, path: &Path) {
+        let priv_ = imp(self);
+        {
+            let mut state = priv_.state.borrow_mut();
+            state.selection.deselect_all();
+            state.selection.toggle_file(&path.to_path_buf());
+        }
+        {
+            let state = priv_.state.borrow();
+            for item in state.grid_item_widgets.values() {
+                item.remove_css_class("accent-selected");
+                item.remove_css_class("folder-checked");
+            }
+            for item in state.list_item_widgets.values() {
+                item.remove_css_class("accent-selected");
+                item.remove_css_class("folder-checked");
+            }
+            let path_buf = path.to_path_buf();
+            if let Some(item) = state.grid_item_widgets.get(&path_buf) {
+                item.add_css_class("accent-selected");
+                play_selection_animation(item);
+            }
+            if let Some(item) = state.list_item_widgets.get(&path_buf) {
+                item.add_css_class("accent-selected");
+            }
+        }
+        priv_.notify_selection_changed();
+    }
+
     /// Get the current selection state (read-only reference via clone).
     pub fn selection(&self) -> SelectionState {
         let priv_ = imp(self);

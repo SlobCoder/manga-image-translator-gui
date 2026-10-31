@@ -764,3 +764,12 @@ msgstr "Browser file"
 
 msgid "Datei-Browser ein-/ausblenden"
 msgstr "Mostra/nascondi browser file"
+
+msgid "Vorheriges Bild"
+msgstr "Immagine precedente"
+
+msgid "Nächstes Bild"
+msgstr "Immagine successiva"
+
+msgid "Übersetzt"
+msgstr "Tradotto"

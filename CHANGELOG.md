@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Previous/next page buttons in the preview** — the preview header now carries
+  ‹ and › buttons next to the mode selector, matching the GPUI frontend. They
+  step through the visible images, move the file-browser selection with them
+  and are disabled at the first and last page.
 - **Responsive sidebars** — the file browser, the settings pane and the preview
   now live in two nested `AdwOverlaySplitView`s. Above 1000 px window width the
   browser is pinned next to the rest; below, it collapses and slides in as an
@@ -37,6 +41,9 @@ All notable changes to this project will be documented in this file.
   right edge.
 
 ### Changed
+- **Preview header** — the redundant "Vorschau" title is gone and the translated
+  tab reads "Übersetzt", so the mode selector and the page buttons fit next to
+  each other in the narrow preview pane at the default window width.
 - **Keyboard-accessible comparison slider** — the divider now shows a
   col-resize cursor, can be focused and moved with Left/Right (2 % steps) and
   Home/End, and reports its position to assistive technologies.

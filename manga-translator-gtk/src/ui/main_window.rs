@@ -411,6 +411,17 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
     // ── Connect FileBrowser signals ─────────────────────────────────────
     connect_file_browser_signals(&widgets, &state);
 
+    // Page navigation in the preview header moves the browser selection.
+    {
+        let file_browser = widgets.borrow().file_browser.clone();
+        widgets
+            .borrow()
+            .preview
+            .set_navigation_handler(move |delta| {
+                file_browser.select_next(delta as isize);
+            });
+    }
+
     // ── Connect view mode toggle ────────────────────────────────────────
     {
         let w = widgets.clone();
@@ -945,6 +956,12 @@ fn connect_file_browser_signals(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCe
                     .load_pair(Some(first), translated.as_deref());
             } else {
                 w.borrow().preview.clear();
+            }
+
+            {
+                let w = w.borrow();
+                let (previous, next) = w.file_browser.navigation_state();
+                w.preview.set_navigation_enabled(previous, next);
             }
 
             // Update status bar

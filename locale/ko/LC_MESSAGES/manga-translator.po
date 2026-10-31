@@ -764,3 +764,12 @@ msgstr "파일 브라우저"
 
 msgid "Datei-Browser ein-/ausblenden"
 msgstr "파일 브라우저 표시/숨기기"
+
+msgid "Vorheriges Bild"
+msgstr "이전 이미지"
+
+msgid "Nächstes Bild"
+msgstr "다음 이미지"
+
+msgid "Übersetzt"
+msgstr "번역됨"

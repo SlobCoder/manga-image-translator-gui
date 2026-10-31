@@ -27,7 +27,7 @@ use crate::i18n;
 /// and its retranslation hook.
 const MODE_TOGGLES: &[(&str, &str)] = &[
     ("original", "Original"),
-    ("translated", "Übersetzung"),
+    ("translated", "Übersetzt"),
     ("compare", "Vergleich"),
 ];
 
@@ -229,6 +229,11 @@ pub struct PreviewPrivate {
     slider_widget: RefCell<Option<gtk::DrawingArea>>,
     /// Adwaita segmented control for the preview modes.
     mode_group: RefCell<Option<adw::ToggleGroup>>,
+    /// Previous/next page buttons.
+    btn_prev: RefCell<Option<gtk::Button>>,
+    btn_next: RefCell<Option<gtk::Button>>,
+    /// Callback invoked with -1 (previous) or 1 (next).
+    on_navigate: RefCell<Option<Rc<dyn Fn(i32)>>>,
     /// Info label (filename, dimensions).
     info_label: RefCell<Option<gtk::Label>>,
     /// Dimensions label.
@@ -253,6 +258,9 @@ impl Default for PreviewPrivate {
             translated_surface: RefCell::new(None),
             slider_widget: RefCell::new(None),
             mode_group: RefCell::new(None),
+            btn_prev: RefCell::new(None),
+            btn_next: RefCell::new(None),
+            on_navigate: RefCell::new(None),
             info_label: RefCell::new(None),
             dimensions_label: RefCell::new(None),
         }
@@ -332,21 +340,20 @@ impl PreviewPrivate {
         vbox.set_vexpand(true);
         vbox.set_hexpand(true);
 
-        // -- Header row: title + mode toggles --
-        let header = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-        header.set_margin_start(12);
-        header.set_margin_end(12);
+        // -- Header row: mode toggles and page navigation --
+        let header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        header.set_margin_start(6);
+        header.set_margin_end(6);
         header.set_margin_top(8);
         header.set_margin_bottom(8);
 
-        let title = gtk::Label::new(Some(&i18n::t("Vorschau")));
-        title.add_css_class("title-2");
-        i18n::register_label(&title, "Vorschau");
-        header.append(&title);
+        // Adwaita segmented control (Original | Translation | Compare) and
+        // page navigation, grouped on the right edge of the header.
+        let controls = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        controls.set_hexpand(true);
+        controls.set_halign(gtk::Align::End);
 
-        // Adwaita segmented control (Original | Translation | Compare).
         let mode_group = adw::ToggleGroup::new();
-        mode_group.set_halign(gtk::Align::End);
         for &(name, msgid) in MODE_TOGGLES {
             let toggle = adw::Toggle::new();
             toggle.set_name(Some(name));
@@ -355,7 +362,23 @@ impl PreviewPrivate {
         }
         mode_group.set_active_name(Some("original"));
         i18n::register_toggle_group(&mode_group, MODE_TOGGLES);
-        header.append(&mode_group);
+        controls.append(&mode_group);
+
+        let btn_prev = gtk::Button::from_icon_name("go-previous-symbolic");
+        btn_prev.add_css_class("flat");
+        btn_prev.set_tooltip_text(Some(&i18n::t("Vorheriges Bild")));
+        i18n::register_tooltip(&btn_prev, "Vorheriges Bild");
+        btn_prev.set_sensitive(false);
+
+        let btn_next = gtk::Button::from_icon_name("go-next-symbolic");
+        btn_next.add_css_class("flat");
+        btn_next.set_tooltip_text(Some(&i18n::t("Nächstes Bild")));
+        i18n::register_tooltip(&btn_next, "Nächstes Bild");
+        btn_next.set_sensitive(false);
+
+        controls.append(&btn_prev);
+        controls.append(&btn_next);
+        header.append(&controls);
 
         vbox.append(&header);
 
@@ -684,6 +707,26 @@ impl PreviewPrivate {
             }
         ));
 
+        // Page navigation forwards to whatever owns the selection.
+        btn_prev.connect_clicked(clone!(
+            #[weak]
+            obj,
+            move |_| {
+                if let Some(callback) = obj.imp().on_navigate.borrow().as_ref() {
+                    callback(-1);
+                }
+            }
+        ));
+        btn_next.connect_clicked(clone!(
+            #[weak]
+            obj,
+            move |_| {
+                if let Some(callback) = obj.imp().on_navigate.borrow().as_ref() {
+                    callback(1);
+                }
+            }
+        ));
+
         // Store references
         *self.container.borrow_mut() = Some(vbox.clone());
         *self.stack.borrow_mut() = Some(stack);
@@ -693,6 +736,8 @@ impl PreviewPrivate {
         *self.translated_overlay.borrow_mut() = Some(translated_overlay);
         *self.slider_widget.borrow_mut() = Some(slider_widget);
         *self.mode_group.borrow_mut() = Some(mode_group);
+        *self.btn_prev.borrow_mut() = Some(btn_prev.clone());
+        *self.btn_next.borrow_mut() = Some(btn_next.clone());
         *self.info_label.borrow_mut() = Some(info_label);
         *self.dimensions_label.borrow_mut() = Some(dimensions_label);
 
@@ -2353,6 +2398,23 @@ impl Preview {
 
         // Keep the segmented control in sync without re-entering set_mode.
         priv_.sync_mode_group(mode);
+    }
+
+    /// Register the callback that moves the selection by -1 (previous) or +1
+    /// (next) page.
+    pub fn set_navigation_handler(&self, handler: impl Fn(i32) + 'static) {
+        *self.imp().on_navigate.borrow_mut() = Some(Rc::new(handler));
+    }
+
+    /// Enable or disable the previous/next buttons.
+    pub fn set_navigation_enabled(&self, previous: bool, next: bool) {
+        let priv_ = self.imp();
+        if let Some(btn) = priv_.btn_prev.borrow().as_ref() {
+            btn.set_sensitive(previous);
+        }
+        if let Some(btn) = priv_.btn_next.borrow().as_ref() {
+            btn.set_sensitive(next);
+        }
     }
 
     /// Get the current preview mode.

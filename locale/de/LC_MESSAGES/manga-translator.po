@@ -587,3 +587,12 @@ msgstr "Datei-Browser"
 
 msgid "Datei-Browser ein-/ausblenden"
 msgstr "Datei-Browser ein-/ausblenden"
+
+msgid "Vorheriges Bild"
+msgstr "Vorheriges Bild"
+
+msgid "Nächstes Bild"
+msgstr "Nächstes Bild"
+
+msgid "Übersetzt"
+msgstr "Übersetzt"
