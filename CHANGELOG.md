@@ -44,6 +44,9 @@ All notable changes to this project will be documented in this file.
   right edge.
 
 ### Changed
+- **Consistent segmented controls** — the OpenRouter sort bar is an
+  `AdwToggleGroup` now, matching the preview mode selector, instead of two rows
+  of linked toggle buttons that used the accent colour.
 - **OpenRouter model picker is a dialog** — the popover had grown into a
   search box, sort bar and detail pane. It now opens an `AdwDialog` with a
   virtualized `GtkListView`, which keeps a 300+ entry catalogue cheap; on

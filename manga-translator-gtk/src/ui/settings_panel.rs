@@ -43,12 +43,12 @@ enum OpenrouterSort {
 }
 
 impl OpenrouterSort {
-    /// The four orders offered by the popup bar, in button order.
-    const OPTIONS: [(Self, &'static str); 4] = [
-        (Self::PriceAsc, "Preis ↑"),
-        (Self::PriceDesc, "Preis ↓"),
-        (Self::IntelligenceAsc, "Intelligenz ↑"),
-        (Self::IntelligenceDesc, "Intelligenz ↓"),
+    /// Stable toggle names and labels of the sort order, in display order.
+    const TOGGLES: &'static [(&'static str, &'static str)] = &[
+        ("price-asc", "Preis ↑"),
+        ("price-desc", "Preis ↓"),
+        ("intelligence-asc", "Intelligenz ↑"),
+        ("intelligence-desc", "Intelligenz ↓"),
     ];
 
     fn key(self) -> &'static str {
@@ -290,11 +290,8 @@ pub struct SettingsPanelPrivate {
     openrouter_details_input: RefCell<Option<gtk::Label>>,
     openrouter_details_output: RefCell<Option<gtk::Label>>,
     openrouter_details_intelligence: RefCell<Option<gtk::Label>>,
-    /// Sort buttons of the popup, paired with their order.
-    openrouter_sort_buttons: RefCell<Vec<(OpenrouterSort, gtk::ToggleButton)>>,
-    /// Guards the sort buttons against their own `toggled` signal while the
-    /// state is synced from the settings.
-    syncing_openrouter_sort: Cell<bool>,
+    /// Segmented control with the four sort orders.
+    openrouter_sort_group: RefCell<Option<adw::ToggleGroup>>,
     /// Model metadata in the currently displayed order.
     openrouter_models: RefCell<Vec<OpenrouterModel>>,
     openrouter_sort: Cell<OpenrouterSort>,
@@ -378,8 +375,7 @@ impl Default for SettingsPanelPrivate {
             openrouter_details_input: RefCell::new(None),
             openrouter_details_output: RefCell::new(None),
             openrouter_details_intelligence: RefCell::new(None),
-            openrouter_sort_buttons: RefCell::new(Vec::new()),
-            syncing_openrouter_sort: Cell::new(false),
+            openrouter_sort_group: RefCell::new(None),
             openrouter_models: RefCell::new(Vec::new()),
             openrouter_sort: Cell::new(OpenrouterSort::Id),
             openrouter_selected: RefCell::new(String::new()),
@@ -760,38 +756,30 @@ impl SettingsPanelPrivate {
         search_row.append(&openrouter_search);
 
         // Sort bar. It stays above the list while the models scroll.
-        let sort_bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        let sort_group = adw::ToggleGroup::new();
+        sort_group.set_homogeneous(true);
+        for &(name, msgid) in OpenrouterSort::TOGGLES {
+            let toggle = adw::Toggle::new();
+            toggle.set_name(Some(name));
+            toggle.set_label(Some(&i18n::t(msgid)));
+            sort_group.add(toggle);
+        }
+        i18n::register_toggle_group(&sort_group, OpenrouterSort::TOGGLES);
+        sort_group.connect_active_name_notify(clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |group| {
+                if let Some(name) = group.active_name() {
+                    this.set_openrouter_sort(OpenrouterSort::from_key(&name));
+                }
+            }
+        ));
+        let sort_bar = gtk::Box::new(gtk::Orientation::Vertical, 0);
         sort_bar.set_margin_top(9);
         sort_bar.set_margin_bottom(9);
         sort_bar.set_margin_start(9);
         sort_bar.set_margin_end(9);
-
-        let mut sort_buttons = Vec::new();
-        let mut group_anchor: Option<gtk::ToggleButton> = None;
-        for chunk in OpenrouterSort::OPTIONS.chunks(2) {
-            let button_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-            button_row.add_css_class("linked");
-            for (sort, msgid) in chunk {
-                let button = gtk::ToggleButton::with_label(&i18n::t(msgid));
-                button.set_hexpand(true);
-                i18n::register_toggle(&button, msgid);
-                match &group_anchor {
-                    Some(anchor) => button.set_group(Some(anchor)),
-                    None => group_anchor = Some(button.clone()),
-                }
-                let panel = obj.clone();
-                let sort = *sort;
-                button.connect_toggled(move |button| {
-                    if !button.is_active() || panel.imp().syncing_openrouter_sort.get() {
-                        return;
-                    }
-                    panel.imp().set_openrouter_sort(sort);
-                });
-                button_row.append(&button);
-                sort_buttons.push((sort, button));
-            }
-            sort_bar.append(&button_row);
-        }
+        sort_bar.append(&sort_group);
 
         // Virtualized list: only the visible rows are materialized, which keeps
         // a 300+ entry catalogue cheap.
@@ -1786,7 +1774,7 @@ impl SettingsPanelPrivate {
         *self.openrouter_details_input.borrow_mut() = Some(openrouter_details_input);
         *self.openrouter_details_output.borrow_mut() = Some(openrouter_details_output);
         *self.openrouter_details_intelligence.borrow_mut() = Some(openrouter_details_intelligence);
-        *self.openrouter_sort_buttons.borrow_mut() = sort_buttons;
+        *self.openrouter_sort_group.borrow_mut() = Some(sort_group);
         *self.openrouter_refresh_row.borrow_mut() = Some(openrouter_refresh_row);
         *self.gemini_refresh_row.borrow_mut() = Some(gemini_refresh_row);
         *self.local_model_row.borrow_mut() = Some(local_model_row);
@@ -2181,18 +2169,18 @@ impl SettingsPanelPrivate {
             cfg.borrow().save_settings();
         }
 
-        self.sync_openrouter_sort_buttons();
+        self.sync_openrouter_sort_group();
         self.rebuild_openrouter_store(false);
     }
 
-    /// Reflect the current sort order in the popup's toggle buttons.
-    fn sync_openrouter_sort_buttons(&self) {
-        let current = self.openrouter_sort.get();
-        self.syncing_openrouter_sort.set(true);
-        for (sort, button) in self.openrouter_sort_buttons.borrow().iter() {
-            button.set_active(*sort == current);
+    /// Reflect the current sort order in the segmented control.
+    fn sync_openrouter_sort_group(&self) {
+        if let Some(group) = self.openrouter_sort_group.borrow().as_ref() {
+            let key = self.openrouter_sort.get().key();
+            if group.active_name().as_deref() != Some(key) {
+                group.set_active_name(Some(key));
+            }
         }
-        self.syncing_openrouter_sort.set(false);
     }
 
     /// Rebuild the list store from `openrouter_models` in the current order.
@@ -2622,7 +2610,7 @@ impl SettingsPanel {
         priv_
             .openrouter_sort
             .set(OpenrouterSort::from_key(&settings.openrouter_sort));
-        priv_.sync_openrouter_sort_buttons();
+        priv_.sync_openrouter_sort_group();
         priv_.rebuild_openrouter_store(false);
 
         // Restore rendering settings
