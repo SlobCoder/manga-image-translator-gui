@@ -62,6 +62,20 @@
   </keywords>
 
   <releases>
+    <release version="0.2.4" date="2026-10-31">
+      <description>
+        <p>Responsive layout, a sortable model picker and comparison fixes.</p>
+        <ul>
+          <li>Responsive sidebars for the file browser, the settings pane and the preview</li>
+          <li>OpenRouter picker as a dialog with search, sorting, prices and intelligence index</li>
+          <li>Scrolling model names instead of ellipses in the model list</li>
+          <li>Previous/next page buttons in the preview header</li>
+          <li>Comparison works after a restart; redesigned, keyboard-accessible slider</li>
+          <li>Gemini model list loaded from the API, with a cached fallback</li>
+          <li>Smooth dialog animations in the Vulkan renderer</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.2.3" date="2026-10-26">
       <description>
         <p>The empty preview turns a real page.</p>

@@ -4,6 +4,8 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+## [0.2.4] — 2026-10-31
+
 ### Added
 - **Model rows show their numbers** — each entry in the OpenRouter picker now
   carries a second line with the input price, output price and intelligence

@@ -6,7 +6,7 @@
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20Windows-informational)
-![Release](https://img.shields.io/badge/release-v0.2.3-blue)
+![Release](https://img.shields.io/badge/release-v0.2.4-blue)
 
 # Manga Image Translator — GTK4 GUI
 
@@ -25,22 +25,22 @@ Pre-built binaries are available on the [Releases page](https://github.com/SlobC
 
 | Format | File | Notes |
 |---|---|---|
-| **Flatpak** | `MangaTranslator-0.2.3-x86_64.flatpak` | GNOME 50 runtime, NVIDIA/ROCm GPU support, matugen colors |
-| **AppImage** | `MangaTranslator-0.2.3-x86_64.AppImage` | Portable, no installation needed |
-| **Windows MSIX** | `MangaTranslator-0.2.3-x86_64.msix` | Installable Windows package |
-| **Windows ZIP** | `MangaTranslator-0.2.3-x86_64.zip` | Portable Windows binary |
+| **Flatpak** | `MangaTranslator-0.2.4-x86_64.flatpak` | GNOME 50 runtime, NVIDIA/ROCm GPU support, matugen colors |
+| **AppImage** | `MangaTranslator-0.2.4-x86_64.AppImage` | Portable, no installation needed |
+| **Windows MSIX** | `MangaTranslator-0.2.4-x86_64.msix` | Installable Windows package |
+| **Windows ZIP** | `MangaTranslator-0.2.4-x86_64.zip` | Portable Windows binary |
 
 ### Install Flatpak
 
 ```bash
-flatpak install MangaTranslator-0.2.3-x86_64.flatpak
+flatpak install MangaTranslator-0.2.4-x86_64.flatpak
 ```
 
 ### Install AppImage
 
 ```bash
-chmod +x MangaTranslator-0.2.3-x86_64.AppImage
-./MangaTranslator-0.2.3-x86_64.AppImage
+chmod +x MangaTranslator-0.2.4-x86_64.AppImage
+./MangaTranslator-0.2.4-x86_64.AppImage
 ```
 
 ## Features
