@@ -44,6 +44,9 @@ All notable changes to this project will be documented in this file.
   right edge.
 
 ### Changed
+- **Grid/list switch uses an AdwToggleGroup** — the two view buttons in the
+  file browser now share the segmented-control look of the preview mode and
+  sort bars.
 - **Colour scheme picker uses an AdwToggleGroup** — System/Hell/Dunkel in the
   accent dialog now match the segmented controls in the preview and the model
   picker; the accent swatches stay a grid of colour buttons.

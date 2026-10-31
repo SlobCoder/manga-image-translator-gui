@@ -72,8 +72,7 @@ pub(crate) struct Widgets {
     preview: Preview,
     path_label: gtk::Label,
     breadcrumb_segments: gtk::Box,
-    btn_grid: gtk::ToggleButton,
-    btn_list: gtk::ToggleButton,
+    view_group: adw::ToggleGroup,
     status_label: gtk::Label,
     progress_bar: gtk::ProgressBar,
     progress_revealer: gtk::Revealer,
@@ -285,8 +284,7 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
         btn_breadcrumb_home,
         btn_breadcrumb_up,
         btn_breadcrumb_refresh,
-        btn_grid,
-        btn_list,
+        view_group,
     ) = build_file_browser_area(&file_browser, &config);
 
     // ── Preview pane (Preview GObject) ──────────────────────────────────
@@ -390,8 +388,7 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
         preview: preview_obj,
         path_label,
         breadcrumb_segments,
-        btn_grid: btn_grid.clone(),
-        btn_list: btn_list.clone(),
+        view_group,
         status_label,
         progress_bar,
         progress_revealer,
@@ -426,24 +423,17 @@ pub fn build_main_window(app: &adw::Application) -> adw::ApplicationWindow {
     {
         let w = widgets.clone();
         let cfg = config.clone();
-        btn_grid.connect_toggled(move |btn| {
-            if btn.is_active() {
-                w.borrow().file_browser.set_view_mode("grid");
-                cfg.borrow_mut().settings.view_mode = "grid".to_string();
+        widgets
+            .borrow()
+            .view_group
+            .connect_active_name_notify(move |group| {
+                let Some(name) = group.active_name() else {
+                    return;
+                };
+                w.borrow().file_browser.set_view_mode(&name);
+                cfg.borrow_mut().settings.view_mode = name.to_string();
                 cfg.borrow().save_settings();
-            }
-        });
-    }
-    {
-        let w = widgets.clone();
-        let cfg = config.clone();
-        btn_list.connect_toggled(move |btn| {
-            if btn.is_active() {
-                w.borrow().file_browser.set_view_mode("list");
-                cfg.borrow_mut().settings.view_mode = "list".to_string();
-                cfg.borrow().save_settings();
-            }
-        });
+            });
     }
 
     // ── Connect setting-changed callback for API key pre-flight ────────
@@ -618,8 +608,7 @@ fn build_file_browser_area(
     gtk::Button,
     gtk::Button,
     gtk::Button,
-    gtk::ToggleButton,
-    gtk::ToggleButton,
+    adw::ToggleGroup,
 ) {
     let vbox = gtk::Box::new(gtk::Orientation::Vertical, 0);
     vbox.set_size_request(280, -1);
@@ -692,31 +681,23 @@ fn build_file_browser_area(
     i18n::register_button(&btn_deselect, "Auswahl aufheben");
 
     // View toggle (grid / list)
-    let view_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    view_box.add_css_class("linked");
-
-    let btn_grid = gtk::ToggleButton::new();
-    btn_grid.set_icon_name("view-grid-symbolic");
-    btn_grid.set_tooltip_text(Some(&i18n::t("Rasteransicht")));
-    i18n::register_tooltip(&btn_grid, "Rasteransicht");
-    btn_grid.set_active(true);
-    btn_grid.add_css_class("view-toggle");
-    btn_grid.add_css_class("flat");
-
-    let btn_list = gtk::ToggleButton::new();
-    btn_list.set_icon_name("view-list-symbolic");
-    btn_list.set_tooltip_text(Some(&i18n::t("Listenansicht")));
-    i18n::register_tooltip(&btn_list, "Listenansicht");
-    btn_list.set_group(Some(&btn_grid));
-    btn_list.add_css_class("view-toggle");
-    btn_list.add_css_class("flat");
-
-    view_box.append(&btn_grid);
-    view_box.append(&btn_list);
+    let view_group = adw::ToggleGroup::new();
+    for (name, icon, msgid) in [
+        ("grid", "view-grid-symbolic", "Rasteransicht"),
+        ("list", "view-list-symbolic", "Listenansicht"),
+    ] {
+        let toggle = adw::Toggle::new();
+        toggle.set_name(Some(name));
+        toggle.set_icon_name(Some(icon));
+        toggle.set_tooltip(&i18n::t(msgid));
+        i18n::register_toggle_tooltip(&toggle, msgid);
+        view_group.add(toggle);
+    }
+    view_group.set_active_name(Some("grid"));
 
     action_row.append(&btn_select_all);
     action_row.append(&btn_deselect);
-    action_row.append(&view_box);
+    action_row.append(&view_group);
     vbox.append(&action_row);
 
     // FileBrowser widget
@@ -781,8 +762,7 @@ fn build_file_browser_area(
         btn_bc_home,
         btn_bc_up,
         btn_bc_refresh,
-        btn_grid,
-        btn_list,
+        view_group,
     )
 }
 
@@ -1309,7 +1289,7 @@ fn install_actions(
         #[strong]
         widgets,
         move |_, _| {
-            widgets.borrow().btn_grid.set_active(true);
+            widgets.borrow().view_group.set_active_name(Some("grid"));
         }
     ));
     window.add_action(&grid_view_action);
@@ -1320,7 +1300,7 @@ fn install_actions(
         #[strong]
         widgets,
         move |_, _| {
-            widgets.borrow().btn_list.set_active(true);
+            widgets.borrow().view_group.set_active_name(Some("list"));
         }
     ));
     window.add_action(&list_view_action);
@@ -2080,11 +2060,11 @@ fn apply_saved_state(
     match settings.view_mode.as_str() {
         "list" => {
             widgets.borrow().file_browser.set_view_mode("list");
-            widgets.borrow().btn_list.set_active(true);
+            widgets.borrow().view_group.set_active_name(Some("list"));
         }
         _ => {
             widgets.borrow().file_browser.set_view_mode("grid");
-            widgets.borrow().btn_grid.set_active(true);
+            widgets.borrow().view_group.set_active_name(Some("grid"));
         }
     }
 

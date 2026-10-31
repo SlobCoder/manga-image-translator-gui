@@ -84,6 +84,16 @@ pub fn register_toggle(button: &gtk::ToggleButton, msgid: &'static str) {
     }));
 }
 
+/// Register an adw::Toggle tooltip for retranslation.
+pub fn register_toggle_tooltip(toggle: &adw::Toggle, msgid: &'static str) {
+    let weak = toggle.downgrade();
+    register(Box::new(move || {
+        if let Some(toggle) = weak.upgrade() {
+            toggle.set_tooltip(&t(msgid));
+        }
+    }));
+}
+
 /// Register an adw::ToggleGroup's toggles for retranslation.
 ///
 /// *entries* maps each toggle's stable name to its msgid; it must live for the
