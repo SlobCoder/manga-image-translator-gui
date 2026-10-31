@@ -299,6 +299,35 @@ fn text_extents_zeroed() -> cairo::TextExtents {
     cairo::TextExtents::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 }
 
+/// Add a rounded rectangle to the current Cairo path.
+fn rounded_rect(cr: &cairo::Context, x: f64, y: f64, w: f64, h: f64, r: f64) {
+    use std::f64::consts::{FRAC_PI_2, PI};
+    cr.new_sub_path();
+    let _ = cr.arc(x + w - r, y + r, r, -FRAC_PI_2, 0.0);
+    let _ = cr.arc(x + w - r, y + h - r, r, 0.0, FRAC_PI_2);
+    let _ = cr.arc(x + r, y + h - r, r, FRAC_PI_2, PI);
+    let _ = cr.arc(x + r, y + r, r, PI, 1.5 * PI);
+    cr.close_path();
+}
+
+/// Current Adwaita accent colour for custom painting.
+#[allow(deprecated)]
+fn accent_color(widget: &impl IsA<gtk::Widget>) -> gtk::gdk::RGBA {
+    widget
+        .style_context()
+        .lookup_color("accent_bg_color")
+        .unwrap_or_else(|| gtk::gdk::RGBA::new(0.21, 0.52, 0.89, 1.0))
+}
+
+/// Foreground colour used on top of the accent.
+#[allow(deprecated)]
+fn accent_fg_color(widget: &impl IsA<gtk::Widget>) -> gtk::gdk::RGBA {
+    widget
+        .style_context()
+        .lookup_color("accent_fg_color")
+        .unwrap_or_else(|| gtk::gdk::RGBA::new(1.0, 1.0, 1.0, 1.0))
+}
+
 /// Expose the comparison slider's position to assistive technologies.
 fn update_slider_a11y(widget: &gtk::DrawingArea, pos: f64) {
     let pct = (pos * 100.0).round().clamp(0.0, 100.0);
@@ -502,123 +531,164 @@ impl PreviewPrivate {
         slider_widget.set_draw_func(clone!(
             #[weak]
             obj,
-            move |_area, cr, width, height| {
+            move |area, cr, width, height| {
                 let this = obj.imp();
                 let pos = *this.slider_position.borrow();
                 let x = (width as f64 * pos).round();
-
-                // Draw the slider line — dark outline first, then white center
-                // This ensures visibility on both light and dark images
-                cr.set_line_width(4.5);
-                cr.set_source_rgba(0.0, 0.0, 0.0, 0.6);
-                let _ = cr.move_to(x, 0.0);
-                let _ = cr.line_to(x, height as f64);
-                let _ = cr.stroke();
-
-                cr.set_line_width(2.0);
-                cr.set_source_rgba(1.0, 1.0, 1.0, 0.9);
-                let _ = cr.move_to(x, 0.0);
-                let _ = cr.line_to(x, height as f64);
-                let _ = cr.stroke();
-
-                // Draw handle circle — dark outline then white fill
                 let cy = height as f64 / 2.0;
-                cr.set_source_rgba(0.0, 0.0, 0.0, 0.6);
-                let _ = cr.arc(x, cy, 13.0, 0.0, 2.0 * std::f64::consts::PI);
-                cr.fill().ok();
+                let accent = accent_color(area);
 
-                cr.set_source_rgb(0.98, 0.98, 0.98);
-                let _ = cr.arc(x, cy, 12.0, 0.0, 2.0 * std::f64::consts::PI);
-                cr.fill().ok();
+                // Contrast seam: a dark halo keeps the line readable on bright
+                // photos, the accent ties it to the current Adwaita palette.
+                cr.set_line_width(3.5);
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
+                let _ = cr.move_to(x, 0.0);
+                let _ = cr.line_to(x, height as f64);
+                let _ = cr.stroke();
 
-                // Draw arrows on the handle
-                cr.set_source_rgb(0.2, 0.2, 0.2);
                 cr.set_line_width(2.0);
-                // Left arrow
-                let _ = cr.move_to(x - 5.0, cy);
-                let _ = cr.line_to(x - 9.0, cy - 4.0);
-                let _ = cr.move_to(x - 5.0, cy);
-                let _ = cr.line_to(x - 9.0, cy + 4.0);
-                let _ = cr.stroke();
-                // Right arrow
-                let _ = cr.move_to(x + 5.0, cy);
-                let _ = cr.line_to(x + 9.0, cy - 4.0);
-                let _ = cr.move_to(x + 5.0, cy);
-                let _ = cr.line_to(x + 9.0, cy + 4.0);
+                cr.set_source_rgba(
+                    accent.red() as f64,
+                    accent.green() as f64,
+                    accent.blue() as f64,
+                    1.0,
+                );
+                let _ = cr.move_to(x, 0.0);
+                let _ = cr.line_to(x, height as f64);
                 let _ = cr.stroke();
 
-                // Position label
-                let pct = (pos * 100.0).round() as i32;
-                cr.set_source_rgb(0.2, 0.2, 0.2);
-                cr.select_font_face("Sans", cairo::FontSlant::Normal, cairo::FontWeight::Bold);
-                cr.set_font_size(9.0);
-                let text = format!("{}%", pct);
-                let extents = cr
-                    .text_extents(&text)
-                    .unwrap_or_else(|_| text_extents_zeroed());
-                let _ = cr.move_to(x - extents.width() / 2.0, cy + 24.0);
-                let _ = cr.show_text(&text);
+                // Slim pill instead of a large knob: it hides less of the page.
+                let handle_w = 18.0;
+                let handle_h = 44.0;
+                let radius = handle_w / 2.0;
+                let left = x - handle_w / 2.0;
+                let top = cy - handle_h / 2.0;
+
+                rounded_rect(cr, left, top, handle_w, handle_h, radius);
+                cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
+                cr.fill_preserve().ok();
+
+                rounded_rect(
+                    cr,
+                    left + 1.0,
+                    top + 1.0,
+                    handle_w - 2.0,
+                    handle_h - 2.0,
+                    radius - 1.0,
+                );
+                cr.set_source_rgba(
+                    accent.red() as f64,
+                    accent.green() as f64,
+                    accent.blue() as f64,
+                    1.0,
+                );
+                cr.fill().ok();
+
+                // Chevrons in the accent's foreground colour.
+                let fg = accent_fg_color(area);
+                cr.set_source_rgba(
+                    fg.red() as f64,
+                    fg.green() as f64,
+                    fg.blue() as f64,
+                    fg.alpha() as f64,
+                );
+                cr.set_line_width(1.8);
+                cr.set_line_cap(cairo::LineCap::Round);
+                let _ = cr.move_to(x - 2.5, cy - 4.0);
+                let _ = cr.line_to(x - 6.5, cy);
+                let _ = cr.line_to(x - 2.5, cy + 4.0);
+                let _ = cr.stroke();
+                let _ = cr.move_to(x + 2.5, cy - 4.0);
+                let _ = cr.line_to(x + 6.5, cy);
+                let _ = cr.line_to(x + 2.5, cy + 4.0);
+                let _ = cr.stroke();
+
+                // Keyboard focus ring around the handle, not the whole image.
+                if area.has_visible_focus() {
+                    rounded_rect(
+                        cr,
+                        left - 4.0,
+                        top - 4.0,
+                        handle_w + 8.0,
+                        handle_h + 8.0,
+                        radius + 4.0,
+                    );
+                    cr.set_line_width(3.5);
+                    cr.set_source_rgba(0.0, 0.0, 0.0, 0.45);
+                    let _ = cr.stroke_preserve();
+                    cr.set_line_width(2.0);
+                    cr.set_source_rgba(0.98, 0.98, 0.98, 0.95);
+                    let _ = cr.stroke();
+                }
             }
         ));
 
         overlay.add_overlay(&slider_widget);
 
-        // Slider gesture (drag)
+        // Slider gesture: pressing jumps to the pointer, dragging follows it.
         let gesture = gtk::GestureDrag::new();
         gesture.set_button(gtk::gdk::BUTTON_PRIMARY);
 
-        gesture.connect_drag_begin(move |_gesture, _x, _y| {
-            // Start dragging — nothing special needed
-        });
+        gesture.connect_drag_begin(clone!(
+            #[strong]
+            slider_widget,
+            #[weak]
+            obj,
+            move |_gesture, start_x, _start_y| {
+                let this = obj.imp();
+                let width = slider_widget.allocation().width() as f64;
+                if width > 0.0 {
+                    let pos = (start_x / width).clamp(0.02, 0.98);
+                    this.set_slider_position(pos);
+                }
+            }
+        ));
 
         gesture.connect_drag_update(clone!(
             #[strong]
             slider_widget,
             #[weak]
             obj,
-            move |_gesture, offset_x, _offset_y| {
+            move |gesture, offset_x, _offset_y| {
                 let this = obj.imp();
-                let start_x = _gesture.start_point().map(|(x, _)| x).unwrap_or(0.0);
-                let allocation = slider_widget.allocation();
-                let width = allocation.width() as f64;
-
+                let start_x = gesture.start_point().map(|(x, _)| x).unwrap_or(0.0);
+                let width = slider_widget.allocation().width() as f64;
                 if width > 0.0 {
-                    let mut pos = (start_x + offset_x) / width;
-                    pos = pos.clamp(0.02, 0.98);
-
+                    let pos = ((start_x + offset_x) / width).clamp(0.02, 0.98);
                     this.set_slider_position(pos);
                 }
             }
         ));
 
-        gesture.connect_drag_end(clone!(
+        slider_widget.add_controller(gesture);
+
+        // Double-click resets to an even split.
+        let double_click = gtk::GestureClick::new();
+        double_click.set_button(gtk::gdk::BUTTON_PRIMARY);
+        double_click.connect_pressed(clone!(
             #[weak]
             obj,
-            move |_gesture, _offset_x, _offset_y| {
-                let this = obj.imp();
-                let final_pos = *this.slider_position.borrow();
-
-                // Micro-bounce: overshoot by 1.5% then snap back
-                let overshoot = if final_pos > 0.5 {
-                    (final_pos + 0.015).min(0.98)
-                } else {
-                    (final_pos - 0.015).max(0.02)
-                };
-
-                // Step 1: Move to overshoot
-                this.set_slider_position(overshoot);
-
-                // Step 2: Snap back to final position after 80ms
-                let obj2 = obj.clone();
-                glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
-                    let this = obj2.imp();
-                    this.set_slider_position(final_pos);
-                    glib::ControlFlow::Break
-                });
+            move |_gesture, n_press, _x, _y| {
+                if n_press == 2 {
+                    obj.imp().set_slider_position(0.5);
+                }
             }
         ));
+        slider_widget.add_controller(double_click);
 
-        slider_widget.add_controller(gesture);
+        // The focus ring is drawn around the handle, so redraw on focus changes.
+        let focus_controller = gtk::EventControllerFocus::new();
+        focus_controller.connect_enter(clone!(
+            #[weak]
+            slider_widget,
+            move |_| slider_widget.queue_draw()
+        ));
+        focus_controller.connect_leave(clone!(
+            #[weak]
+            slider_widget,
+            move |_| slider_widget.queue_draw()
+        ));
+        slider_widget.add_controller(focus_controller);
 
         // Keyboard control: arrows move by 2 %, Home/End jump to the edges.
         let key_controller = gtk::EventControllerKey::new();

@@ -476,11 +476,6 @@ gridview child:hover {
     min-width: 3px;
 }
 
-.comparison-slider:focus-visible {
-    outline: 2px solid @accent_bg_color;
-    outline-offset: -2px;
-}
-
 .comparison-label {
     color: alpha(@fg_color, 0.6);
 }

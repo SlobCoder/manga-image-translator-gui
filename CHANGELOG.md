@@ -41,6 +41,11 @@ All notable changes to this project will be documented in this file.
   right edge.
 
 ### Changed
+- **Comparison slider redesign** — the divider now takes its colour from the
+  Adwaita accent (with a dark contrast seam for bright pages) and uses a slim
+  pill instead of a large knob. The percentage label is gone, a click jumps to
+  the pointer, a double-click resets to 50/50, and the keyboard focus ring is
+  drawn around the handle instead of the whole image.
 - **Preview header** — the redundant "Vorschau" title is gone and the translated
   tab reads "Übersetzt", so the mode selector and the page buttons fit next to
   each other in the narrow preview pane at the default window width.
