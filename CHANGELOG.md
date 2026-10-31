@@ -37,6 +37,9 @@ All notable changes to this project will be documented in this file.
   right edge.
 
 ### Changed
+- **Keyboard-accessible comparison slider** — the divider now shows a
+  col-resize cursor, can be focused and moved with Left/Right (2 % steps) and
+  Home/End, and reports its position to assistive technologies.
 - **Adwaita alignment** — the preview mode selector is now an `AdwToggleGroup`
   instead of three grouped `GtkToggleButton`s, and the progress spinners are
   `AdwSpinner`, which animates whenever it is visible.

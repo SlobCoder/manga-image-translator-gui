@@ -291,6 +291,18 @@ fn text_extents_zeroed() -> cairo::TextExtents {
     cairo::TextExtents::new(0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 }
 
+/// Expose the comparison slider's position to assistive technologies.
+fn update_slider_a11y(widget: &gtk::DrawingArea, pos: f64) {
+    let pct = (pos * 100.0).round().clamp(0.0, 100.0);
+    let text = format!("{:.0} %", pct);
+    widget.update_property(&[
+        gtk::accessible::Property::ValueMin(0.0),
+        gtk::accessible::Property::ValueMax(100.0),
+        gtk::accessible::Property::ValueNow(pct),
+        gtk::accessible::Property::ValueText(&text),
+    ]);
+}
+
 impl PreviewPrivate {
     /// Point the segmented control at *mode*.
     fn sync_mode_group(&self, mode: PreviewMode) {
@@ -298,6 +310,19 @@ impl PreviewPrivate {
             if group.active_name().as_deref() != Some(mode.toggle_name()) {
                 group.set_active_name(Some(mode.toggle_name()));
             }
+        }
+    }
+
+    /// Move the comparison slider to *pos*, redraw both layers and update the
+    /// assistive-technology value of the slider widget.
+    fn set_slider_position(&self, pos: f64) {
+        *self.slider_position.borrow_mut() = pos;
+        if let Some(slider) = self.slider_widget.borrow().as_ref() {
+            update_slider_a11y(slider, pos);
+            slider.queue_draw();
+        }
+        if let Some(overlay) = self.translated_overlay.borrow().as_ref() {
+            overlay.queue_draw();
         }
     }
 
@@ -448,6 +473,9 @@ impl PreviewPrivate {
         slider_widget.add_css_class("comparison-slider");
         slider_widget.set_hexpand(true);
         slider_widget.set_vexpand(true);
+        slider_widget.set_cursor_from_name(Some("col-resize"));
+        slider_widget.set_focusable(true);
+        update_slider_a11y(&slider_widget, 0.5);
         slider_widget.set_draw_func(clone!(
             #[weak]
             obj,
@@ -535,14 +563,7 @@ impl PreviewPrivate {
                     let mut pos = (start_x + offset_x) / width;
                     pos = pos.clamp(0.02, 0.98);
 
-                    // Update stored position
-                    *this.slider_position.borrow_mut() = pos;
-
-                    slider_widget.queue_draw();
-                    // Redraw translated overlay for clip update
-                    if let Some(overlay) = this.translated_overlay.borrow().as_ref() {
-                        overlay.queue_draw();
-                    }
+                    this.set_slider_position(pos);
                 }
             }
         ));
@@ -562,31 +583,45 @@ impl PreviewPrivate {
                 };
 
                 // Step 1: Move to overshoot
-                *this.slider_position.borrow_mut() = overshoot;
-                if let Some(sw) = this.slider_widget.borrow().as_ref() {
-                    sw.queue_draw();
-                }
-                if let Some(ow) = this.translated_overlay.borrow().as_ref() {
-                    ow.queue_draw();
-                }
+                this.set_slider_position(overshoot);
 
                 // Step 2: Snap back to final position after 80ms
                 let obj2 = obj.clone();
                 glib::timeout_add_local(std::time::Duration::from_millis(80), move || {
                     let this = obj2.imp();
-                    *this.slider_position.borrow_mut() = final_pos;
-                    if let Some(sw) = this.slider_widget.borrow().as_ref() {
-                        sw.queue_draw();
-                    }
-                    if let Some(ow) = this.translated_overlay.borrow().as_ref() {
-                        ow.queue_draw();
-                    }
+                    this.set_slider_position(final_pos);
                     glib::ControlFlow::Break
                 });
             }
         ));
 
         slider_widget.add_controller(gesture);
+
+        // Keyboard control: arrows move by 2 %, Home/End jump to the edges.
+        let key_controller = gtk::EventControllerKey::new();
+        let weak_obj = obj.downgrade();
+        key_controller.connect_key_pressed(move |_controller, key, _code, _modifier| {
+            let Some(obj) = weak_obj.upgrade() else {
+                return glib::Propagation::Proceed;
+            };
+            let this = obj.imp();
+            let current = *this.slider_position.borrow();
+            let next = match key {
+                gtk::gdk::Key::Left => Some((current - 0.02).max(0.02)),
+                gtk::gdk::Key::Right => Some((current + 0.02).min(0.98)),
+                gtk::gdk::Key::Home => Some(0.02),
+                gtk::gdk::Key::End => Some(0.98),
+                _ => None,
+            };
+            match next {
+                Some(next) => {
+                    this.set_slider_position(next);
+                    glib::Propagation::Stop
+                }
+                None => glib::Propagation::Proceed,
+            }
+        });
+        slider_widget.add_controller(key_controller);
 
         // Re-apply clip when the slider widget is resized (handles initial allocation
         // race: Compare mode may be entered before the widget has its first allocation)
