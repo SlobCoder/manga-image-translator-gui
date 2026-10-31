@@ -28,6 +28,15 @@ const APP_CSS: &str = include_str!("../resources/style.css");
 static LOG_FILE: std::sync::Mutex<Option<File>> = std::sync::Mutex::new(None);
 
 fn main() -> glib::ExitCode {
+    // GTK's Vulkan renderer runs a cache GC every 15 seconds. The collection
+    // drops a frame, which shows up as a stutter in AdwDialog opening
+    // animations. The cache stays small in a GUI process, so disable the GC
+    // unless the user configured a timeout.
+    if std::env::var_os("GSK_CACHE_TIMEOUT").is_none() {
+        // SAFETY: no other thread has been started yet.
+        unsafe { std::env::set_var("GSK_CACHE_TIMEOUT", "-1") };
+    }
+
     // ── Windows: show panic as message box instead of vanishing console ──
     #[cfg(target_os = "windows")]
     setup_windows_panic_hook();

@@ -70,6 +70,10 @@ All notable changes to this project will be documented in this file.
   `AdwSpinner`, which animates whenever it is visible.
 
 ### Fixed
+- **Dialogs open smoothly again** — GTK's Vulkan renderer runs a cache GC every
+  15 seconds, and the collection drops a frame, which made the `AdwDialog`
+  opening animation stutter. The app now disables the GC
+  (`GSK_CACHE_TIMEOUT=-1`) unless the user configured a timeout.
 - **Dialog opening performance** — the accent dialog registered the same CSS
   provider once per swatch and a fresh one on every keystroke in the hex field;
   each registration invalidates the whole style cascade. Both now use a single
