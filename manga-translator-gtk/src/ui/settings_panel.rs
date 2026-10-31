@@ -123,6 +123,43 @@ fn detail_block(msgid: &'static str, value: &gtk::Label) -> gtk::Box {
 }
 
 /// Format a per-token price as USD per million tokens.
+/// Extract the model carried by a virtualized list item.
+fn openrouter_model_from_item(item: &gtk::ListItem) -> Option<OpenrouterModel> {
+    item.item()
+        .and_downcast::<glib::BoxedAnyObject>()
+        .map(|obj| obj.borrow::<OpenrouterModel>().clone())
+}
+
+/// Read the model at *position* from a single-selection model.
+fn openrouter_model_from_selection(
+    selection: &gtk::SingleSelection,
+    position: u32,
+) -> Option<OpenrouterModel> {
+    selection
+        .item(position)
+        .and_downcast::<glib::BoxedAnyObject>()
+        .map(|obj| obj.borrow::<OpenrouterModel>().clone())
+}
+
+/// Select the row whose model id is *id*, if it is currently visible.
+fn select_openrouter_by_id(selection: &gtk::SingleSelection, id: &str) {
+    let Some(model) = selection.model() else {
+        return;
+    };
+    for position in 0..model.n_items() {
+        let Some(obj) = model.item(position) else {
+            continue;
+        };
+        let Some(boxed) = obj.downcast_ref::<glib::BoxedAnyObject>() else {
+            continue;
+        };
+        if boxed.borrow::<OpenrouterModel>().id == id {
+            selection.set_selected(position);
+            return;
+        }
+    }
+}
+
 fn format_token_price(per_token: Option<f64>) -> String {
     match per_token {
         None => "—".to_string(),
@@ -234,10 +271,17 @@ pub struct SettingsPanelPrivate {
     gemini_model_row: RefCell<Option<adw::ComboRow>>,
     openrouter_model_row: RefCell<Option<adw::ActionRow>>,
     openrouter_value_label: RefCell<Option<gtk::Label>>,
-    /// Popup with the sort bar and the scrollable model list.
-    openrouter_popover: RefCell<Option<gtk::Popover>>,
-    openrouter_list: RefCell<Option<gtk::ListBox>>,
-    /// Search field above the popup list.
+    /// Dialog with the search field, sort bar and the virtualized model list.
+    openrouter_dialog: RefCell<Option<adw::Dialog>>,
+    /// Unsorted base list; the dialog's ListStore mirrors it.
+    openrouter_store: RefCell<Option<gio::ListStore>>,
+    openrouter_selection: RefCell<Option<gtk::SingleSelection>>,
+    openrouter_list_view: RefCell<Option<gtk::ListView>>,
+    /// Live filter applied to the model store.
+    openrouter_filter: RefCell<Option<gtk::CustomFilter>>,
+    /// Lower-cased query read by the filter closure.
+    openrouter_query: Rc<RefCell<String>>,
+    /// Search field above the model list.
     openrouter_search: RefCell<Option<gtk::SearchEntry>>,
     /// Side panel in the popup with the selected model's numbers.
     openrouter_details_title: RefCell<Option<gtk::Label>>,
@@ -321,8 +365,12 @@ impl Default for SettingsPanelPrivate {
             gemini_model_row: RefCell::new(None),
             openrouter_model_row: RefCell::new(None),
             openrouter_value_label: RefCell::new(None),
-            openrouter_popover: RefCell::new(None),
-            openrouter_list: RefCell::new(None),
+            openrouter_dialog: RefCell::new(None),
+            openrouter_store: RefCell::new(None),
+            openrouter_selection: RefCell::new(None),
+            openrouter_list_view: RefCell::new(None),
+            openrouter_filter: RefCell::new(None),
+            openrouter_query: Rc::new(RefCell::new(String::new())),
             openrouter_search: RefCell::new(None),
             openrouter_details_title: RefCell::new(None),
             openrouter_details_input: RefCell::new(None),
@@ -667,16 +715,25 @@ impl SettingsPanelPrivate {
         openrouter_arrow.add_css_class("dim-label");
         openrouter_model_row.add_suffix(&openrouter_arrow);
 
-        let openrouter_popover = gtk::Popover::new();
-        openrouter_popover.set_has_arrow(true);
-        openrouter_popover.add_css_class("menu");
-        openrouter_popover.set_parent(&openrouter_model_row);
+        // Model picker. A dialog is the right container: 300+ entries with
+        // search, sorting and a detail pane do not fit into a popover.
+        let openrouter_dialog = adw::Dialog::builder()
+            .content_width(760)
+            .content_height(560)
+            .build();
+        openrouter_dialog.set_size_request(400, 320);
+
+        let dialog_toolbar = adw::ToolbarView::new();
+        let dialog_header = adw::HeaderBar::new();
+        let dialog_title =
+            adw::WindowTitle::new(&i18n::t("OpenRouter Modell"), &i18n::t("Modell auswählen"));
+        i18n::register_window_title(&dialog_title, "OpenRouter Modell", Some("Modell auswählen"));
+        dialog_header.set_title_widget(Some(&dialog_title));
+        dialog_toolbar.add_top_bar(&dialog_header);
 
         let openrouter_search = gtk::SearchEntry::new();
         openrouter_search.set_placeholder_text(Some(&i18n::t("Modell suchen")));
-        openrouter_search.set_margin_top(9);
-        openrouter_search.set_margin_start(9);
-        openrouter_search.set_margin_end(9);
+        openrouter_search.set_hexpand(true);
         i18n::register_search_placeholder(&openrouter_search, "Modell suchen");
         openrouter_search.connect_search_changed(clone!(
             #[weak(rename_to = this)]
@@ -692,17 +749,15 @@ impl SettingsPanelPrivate {
                 openrouter_search.set_text("");
             }
         ));
-        // A stale filter would hide the list the next time the popup opens.
-        openrouter_popover.connect_closed(clone!(
-            #[weak]
-            openrouter_search,
-            move |_| {
-                openrouter_search.set_text("");
-            }
-        ));
 
-        // Sort bar. It sits above the scrolled window, not inside it, so it
-        // stays in place while the list scrolls.
+        let search_row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        search_row.set_margin_top(9);
+        search_row.set_margin_bottom(3);
+        search_row.set_margin_start(12);
+        search_row.set_margin_end(12);
+        search_row.append(&openrouter_search);
+
+        // Sort bar. It stays above the list while the models scroll.
         let sort_bar = gtk::Box::new(gtk::Orientation::Vertical, 6);
         sort_bar.set_margin_top(9);
         sort_bar.set_margin_bottom(9);
@@ -736,20 +791,108 @@ impl SettingsPanelPrivate {
             sort_bar.append(&button_row);
         }
 
-        let openrouter_list = gtk::ListBox::new();
-        openrouter_list.set_selection_mode(gtk::SelectionMode::Single);
+        // Virtualized list: only the visible rows are materialized, which keeps
+        // a 300+ entry catalogue cheap.
+        let openrouter_store = gio::ListStore::new::<glib::BoxedAnyObject>();
+        let query = self.openrouter_query.clone();
+        let openrouter_filter = gtk::CustomFilter::new(move |obj| {
+            let Some(boxed) = obj.downcast_ref::<glib::BoxedAnyObject>() else {
+                return false;
+            };
+            let model = boxed.borrow::<OpenrouterModel>();
+            let query = query.borrow();
+            query.is_empty()
+                || model.id.to_lowercase().contains(&*query)
+                || model.name.to_lowercase().contains(&*query)
+        });
+        let filter_model = gtk::FilterListModel::new(
+            Some(openrouter_store.clone()),
+            Some(openrouter_filter.clone()),
+        );
+        let openrouter_selection = gtk::SingleSelection::new(Some(filter_model));
+        openrouter_selection.set_autoselect(false);
+        openrouter_selection.set_can_unselect(true);
 
-        let openrouter_scrolled = gtk::ScrolledWindow::new();
-        openrouter_scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
-        openrouter_scrolled.set_propagate_natural_width(true);
-        openrouter_scrolled.set_propagate_natural_height(true);
-        openrouter_scrolled.set_max_content_height(420);
-        openrouter_scrolled.set_child(Some(&openrouter_list));
-        openrouter_scrolled.set_hexpand(true);
+        let factory = gtk::SignalListItemFactory::new();
+        factory.connect_setup(|_, item| {
+            let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+                return;
+            };
+            let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+            hbox.set_margin_top(6);
+            hbox.set_margin_bottom(6);
+            hbox.set_margin_start(12);
+            hbox.set_margin_end(12);
+            let label = MarqueeLabel::new();
+            label.set_hexpand(true);
+            hbox.append(&label);
+            let check = gtk::Image::from_icon_name("object-select-symbolic");
+            check.set_opacity(0.0);
+            hbox.append(&check);
+            item.set_child(Some(&hbox));
+        });
+        factory.connect_bind(clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |_, item| {
+                let Some(item) = item.downcast_ref::<gtk::ListItem>() else {
+                    return;
+                };
+                let Some(model) = openrouter_model_from_item(item) else {
+                    return;
+                };
+                let Some(hbox) = item.child().and_downcast::<gtk::Box>() else {
+                    return;
+                };
+                if let Some(label) = hbox.first_child().and_downcast::<MarqueeLabel>() {
+                    label.set_text(&model.id);
+                }
+                if let Some(check) = hbox.last_child().and_downcast::<gtk::Image>() {
+                    let selected = *this.openrouter_selected.borrow() == model.id;
+                    check.set_opacity(if selected { 1.0 } else { 0.0 });
+                }
+            }
+        ));
 
-        // Details of the model under the pointer / selected in the list.
+        let openrouter_list_view =
+            gtk::ListView::new(Some(openrouter_selection.clone()), Some(factory.clone()));
+        openrouter_list_view.set_single_click_activate(true);
+        openrouter_list_view.set_vexpand(true);
+        openrouter_list_view.set_hexpand(true);
+
+        openrouter_list_view.connect_activate(clone!(
+            #[weak(rename_to = this)]
+            self,
+            #[weak]
+            openrouter_dialog,
+            move |view, position| {
+                let Some(selection) = view.model().and_downcast::<gtk::SingleSelection>() else {
+                    return;
+                };
+                let Some(model) = openrouter_model_from_selection(&selection, position) else {
+                    return;
+                };
+                this.accept_openrouter_model(model);
+                openrouter_dialog.close();
+            }
+        ));
+
+        openrouter_selection.connect_selected_notify(clone!(
+            #[weak(rename_to = this)]
+            self,
+            move |selection| {
+                let model = selection
+                    .selected_item()
+                    .and_downcast::<glib::BoxedAnyObject>()
+                    .map(|obj| obj.borrow::<OpenrouterModel>().clone());
+                this.update_openrouter_details_for(model);
+            }
+        ));
+
+        // Details of the selected model.
         let details_panel = gtk::Box::new(gtk::Orientation::Vertical, 8);
         details_panel.set_size_request(150, -1);
+        details_panel.set_halign(gtk::Align::Fill);
         details_panel.set_margin_top(9);
         details_panel.set_margin_bottom(9);
         details_panel.set_margin_start(12);
@@ -772,89 +915,68 @@ impl SettingsPanelPrivate {
             details_panel.append(&detail_block(msgid, value));
         }
 
+        let list_scrolled = gtk::ScrolledWindow::new();
+        list_scrolled.set_policy(gtk::PolicyType::Never, gtk::PolicyType::Automatic);
+        list_scrolled.set_vexpand(true);
+        list_scrolled.set_hexpand(true);
+        list_scrolled.set_child(Some(&openrouter_list_view));
+
         let content_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-        content_box.append(&openrouter_scrolled);
+        content_box.set_vexpand(true);
+        content_box.append(&list_scrolled);
         let details_separator = gtk::Separator::new(gtk::Orientation::Vertical);
         details_separator.set_margin_top(6);
         details_separator.set_margin_bottom(6);
         content_box.append(&details_separator);
         content_box.append(&details_panel);
 
-        let popover_box = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        popover_box.append(&openrouter_search);
-        popover_box.append(&sort_bar);
-        popover_box.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
-        popover_box.append(&content_box);
-        openrouter_popover.set_child(Some(&popover_box));
+        // Narrow dialogs stack the details below the list.
+        let narrow = adw::Breakpoint::new(
+            adw::BreakpointCondition::parse("max-width: 640px")
+                .expect("valid breakpoint condition"),
+        );
+        narrow.add_setter(
+            &content_box,
+            "orientation",
+            Some(&gtk::Orientation::Vertical.to_value()),
+        );
+        narrow.add_setter(
+            &details_separator,
+            "orientation",
+            Some(&gtk::Orientation::Horizontal.to_value()),
+        );
+        openrouter_dialog.add_breakpoint(narrow);
+
+        let dialog_content = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        dialog_content.append(&search_row);
+        dialog_content.append(&sort_bar);
+        dialog_content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+        dialog_content.append(&content_box);
+        dialog_toolbar.set_content(Some(&dialog_content));
+        openrouter_dialog.set_child(Some(&dialog_toolbar));
 
         openrouter_model_row.connect_activated(clone!(
+            #[weak(rename_to = this)]
+            self,
             #[weak]
-            openrouter_popover,
-            #[weak]
-            openrouter_list,
+            openrouter_dialog,
             move |_| {
-                openrouter_popover.popup();
-                match openrouter_list.selected_row() {
-                    Some(row) => {
-                        row.grab_focus();
-                    }
-                    None => {
-                        openrouter_list.grab_focus();
-                    }
+                let root = this.obj().root();
+                openrouter_dialog.present(root.as_ref());
+                if let Some(view) = this.openrouter_list_view.borrow().as_ref() {
+                    view.grab_focus();
                 }
             }
         ));
 
-        openrouter_list.connect_row_activated(clone!(
-            #[weak(rename_to = this)]
-            self,
+        // A stale filter would hide the list the next time the dialog opens.
+        openrouter_dialog.connect_closed(clone!(
             #[weak]
-            openrouter_popover,
-            move |_, row| {
-                this.on_openrouter_row_activated(row.index() as usize);
-                openrouter_popover.popdown();
+            openrouter_search,
+            move |_| {
+                openrouter_search.set_text("");
             }
         ));
-
-        // `.menu` popovers do not highlight the selected row, so the check
-        // mark is the only indicator — keep it in sync with the selection.
-        openrouter_list.connect_row_selected(clone!(
-            #[weak(rename_to = this)]
-            self,
-            move |list, selected| {
-                let mut child = list.first_child();
-                while let Some(widget) = child {
-                    if let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() {
-                        let check = row
-                            .child()
-                            .and_downcast::<gtk::Box>()
-                            .and_then(|hbox| hbox.last_child())
-                            .and_downcast::<gtk::Image>();
-                        if let Some(check) = check {
-                            check.set_opacity(if Some(row) == selected { 1.0 } else { 0.0 });
-                        }
-                    }
-                    child = widget.next_sibling();
-                }
-                this.update_openrouter_details(selected.map(|row| row.index() as usize));
-            }
-        ));
-
-        // Clicking a row closes the popup, so the details also follow the
-        // pointer while it moves over the list.
-        let motion = gtk::EventControllerMotion::new();
-        motion.connect_motion(clone!(
-            #[weak(rename_to = this)]
-            self,
-            #[weak]
-            openrouter_list,
-            move |_, _x, y| {
-                if let Some(row) = openrouter_list.row_at_y(y as i32) {
-                    this.update_openrouter_details(Some(row.index() as usize));
-                }
-            }
-        ));
-        openrouter_list.add_controller(motion);
 
         // Refresh row for fetching OpenRouter models from the API
         let openrouter_refresh_row = adw::ActionRow::builder()
@@ -1621,8 +1743,11 @@ impl SettingsPanelPrivate {
         *self.gemini_model_row.borrow_mut() = Some(gemini_model_row);
         *self.openrouter_model_row.borrow_mut() = Some(openrouter_model_row);
         *self.openrouter_value_label.borrow_mut() = Some(openrouter_value_label);
-        *self.openrouter_popover.borrow_mut() = Some(openrouter_popover);
-        *self.openrouter_list.borrow_mut() = Some(openrouter_list);
+        *self.openrouter_dialog.borrow_mut() = Some(openrouter_dialog);
+        *self.openrouter_store.borrow_mut() = Some(openrouter_store);
+        *self.openrouter_selection.borrow_mut() = Some(openrouter_selection);
+        *self.openrouter_list_view.borrow_mut() = Some(openrouter_list_view);
+        *self.openrouter_filter.borrow_mut() = Some(openrouter_filter);
         *self.openrouter_search.borrow_mut() = Some(openrouter_search);
         *self.openrouter_details_title.borrow_mut() = Some(openrouter_details_title);
         *self.openrouter_details_input.borrow_mut() = Some(openrouter_details_input);
@@ -2024,7 +2149,7 @@ impl SettingsPanelPrivate {
         }
 
         self.sync_openrouter_sort_buttons();
-        self.rebuild_openrouter_list(false);
+        self.rebuild_openrouter_store(false);
     }
 
     /// Reflect the current sort order in the popup's toggle buttons.
@@ -2037,36 +2162,22 @@ impl SettingsPanelPrivate {
         self.syncing_openrouter_sort.set(false);
     }
 
-    /// Rebuild the popup rows from `openrouter_models` in the current order.
+    /// Rebuild the list store from `openrouter_models` in the current order.
     ///
     /// With `fallback_to_first`, a list without a configured model selects the
     /// first entry so a translation always has a model to send.
-    fn rebuild_openrouter_list(&self, fallback_to_first: bool) {
+    fn rebuild_openrouter_store(&self, fallback_to_first: bool) {
         let mut models = self.openrouter_models.borrow().clone();
         self.openrouter_sort.get().sort(&mut models);
+        *self.openrouter_models.borrow_mut() = models.clone();
 
-        let list = self.openrouter_list.borrow().clone();
-        if let Some(list) = &list {
-            while let Some(child) = list.first_child() {
-                list.remove(&child);
-            }
-            for model in &models {
-                let row = gtk::ListBoxRow::new();
-                row.set_activatable(true);
-
-                let hbox = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-                let label = MarqueeLabel::new();
-                label.set_hexpand(true);
-                label.set_text(&model.id);
-                hbox.append(&label);
-
-                let check = gtk::Image::from_icon_name("object-select-symbolic");
-                check.set_opacity(0.0);
-                hbox.append(&check);
-
-                row.set_child(Some(&hbox));
-                list.append(&row);
-            }
+        if let Some(store) = self.openrouter_store.borrow().as_ref() {
+            let items: Vec<glib::BoxedAnyObject> = models
+                .iter()
+                .cloned()
+                .map(glib::BoxedAnyObject::new)
+                .collect();
+            store.splice(0, store.n_items(), &items);
         }
 
         let mut selected = self.openrouter_selected.borrow().clone();
@@ -2077,15 +2188,11 @@ impl SettingsPanelPrivate {
             *self.openrouter_selected.borrow_mut() = selected.clone();
         }
 
-        *self.openrouter_models.borrow_mut() = models;
-
-        if let (Some(list), Some(index)) = (&list, index) {
-            if let Some(row) = list.row_at_index(index as i32) {
-                list.select_row(Some(&row));
-            }
+        if let Some(selection) = self.openrouter_selection.borrow().as_ref() {
+            select_openrouter_by_id(selection, &selected);
         }
 
-        self.update_openrouter_details(index);
+        self.update_openrouter_details_for(index.and_then(|index| models.get(index).cloned()));
         self.update_openrouter_value_label();
 
         // A filter stays active when the list is rebuilt (sort or fetch).
@@ -2094,32 +2201,11 @@ impl SettingsPanelPrivate {
         }
     }
 
-    /// Show only the rows whose id or name contains *query*.
+    /// Show only the models whose id or name contains *query*.
     fn filter_openrouter_list(&self, query: &str) {
-        let query = query.trim().to_lowercase();
-
-        let list = self.openrouter_list.borrow().clone();
-        let Some(list) = list else {
-            return;
-        };
-
-        let models = self.openrouter_models.borrow();
-        let mut child = list.first_child();
-        let mut index = 0usize;
-        while let Some(widget) = child {
-            if let Some(row) = widget.downcast_ref::<gtk::ListBoxRow>() {
-                let matches = match models.get(index) {
-                    Some(model) if !query.is_empty() => {
-                        model.id.to_lowercase().contains(&query)
-                            || model.name.to_lowercase().contains(&query)
-                    }
-                    Some(_) => true,
-                    None => false,
-                };
-                row.set_visible(matches);
-                index += 1;
-            }
-            child = widget.next_sibling();
+        *self.openrouter_query.borrow_mut() = query.trim().to_lowercase();
+        if let Some(filter) = self.openrouter_filter.borrow().as_ref() {
+            filter.changed(gtk::FilterChange::Different);
         }
     }
 
@@ -2136,10 +2222,8 @@ impl SettingsPanelPrivate {
         }
     }
 
-    /// Show the numbers of the given model in the popup's detail sidebar.
-    fn update_openrouter_details(&self, index: Option<usize>) {
-        let model = index.and_then(|index| self.openrouter_models.borrow().get(index).cloned());
-
+    /// Show the numbers of the given model in the detail sidebar.
+    fn update_openrouter_details_for(&self, model: Option<OpenrouterModel>) {
         let (title, input, output, intelligence) = match model {
             Some(model) => (
                 model.id,
@@ -2174,12 +2258,8 @@ impl SettingsPanelPrivate {
         }
     }
 
-    /// Select a model from the popup and persist it.
-    fn on_openrouter_row_activated(&self, index: usize) {
-        let Some(model) = self.openrouter_models.borrow().get(index).cloned() else {
-            return;
-        };
-
+    /// Accept a model from the dialog and persist it.
+    fn accept_openrouter_model(&self, model: OpenrouterModel) {
         *self.openrouter_selected.borrow_mut() = model.id.clone();
         self.update_openrouter_value_label();
 
@@ -2510,7 +2590,7 @@ impl SettingsPanel {
             .openrouter_sort
             .set(OpenrouterSort::from_key(&settings.openrouter_sort));
         priv_.sync_openrouter_sort_buttons();
-        priv_.rebuild_openrouter_list(false);
+        priv_.rebuild_openrouter_store(false);
 
         // Restore rendering settings
         if let Some(row) = priv_.renderer_row.borrow().as_ref() {
@@ -2652,7 +2732,7 @@ impl SettingsPanel {
         }
 
         *priv_.openrouter_models.borrow_mut() = models.to_vec();
-        priv_.rebuild_openrouter_list(true);
+        priv_.rebuild_openrouter_store(true);
 
         // Persist the metadata (for sorting after a restart) and the flat id
         // cache the GPUI frontend and older builds read.

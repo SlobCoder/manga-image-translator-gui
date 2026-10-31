@@ -773,3 +773,6 @@ msgstr "Next image"
 
 msgid "Übersetzt"
 msgstr "Translated"
+
+msgid "Modell auswählen"
+msgstr "Choose model"

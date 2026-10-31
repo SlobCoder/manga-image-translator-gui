@@ -104,6 +104,23 @@ pub fn register_toggle_group(
     }));
 }
 
+/// Register an adw::WindowTitle (title and optional subtitle) for retranslation.
+pub fn register_window_title(
+    title: &adw::WindowTitle,
+    title_msgid: &'static str,
+    subtitle_msgid: Option<&'static str>,
+) {
+    let weak = title.downgrade();
+    register(Box::new(move || {
+        if let Some(title) = weak.upgrade() {
+            title.set_title(&t(title_msgid));
+            if let Some(msgid) = subtitle_msgid {
+                title.set_subtitle(&t(msgid));
+            }
+        }
+    }));
+}
+
 /// Register an adw::PreferencesGroup title for retranslation.
 pub fn register_group_title(group: &adw::PreferencesGroup, msgid: &'static str) {
     let weak = group.downgrade();

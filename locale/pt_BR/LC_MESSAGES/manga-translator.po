@@ -773,3 +773,6 @@ msgstr "Próxima imagem"
 
 msgid "Übersetzt"
 msgstr "Traduzido"
+
+msgid "Modell auswählen"
+msgstr "Escolher modelo"

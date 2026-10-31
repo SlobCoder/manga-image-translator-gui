@@ -773,3 +773,6 @@ msgstr "下一张图片"
 
 msgid "Übersetzt"
 msgstr "已翻译"
+
+msgid "Modell auswählen"
+msgstr "选择模型"

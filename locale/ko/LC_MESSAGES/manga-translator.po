@@ -773,3 +773,6 @@ msgstr "다음 이미지"
 
 msgid "Übersetzt"
 msgstr "번역됨"
+
+msgid "Modell auswählen"
+msgstr "모델 선택"

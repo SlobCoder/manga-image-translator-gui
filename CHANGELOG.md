@@ -41,6 +41,10 @@ All notable changes to this project will be documented in this file.
   right edge.
 
 ### Changed
+- **OpenRouter model picker is a dialog** — the popover had grown into a
+  search box, sort bar and detail pane. It now opens an `AdwDialog` with a
+  virtualized `GtkListView`, which keeps a 300+ entry catalogue cheap; on
+  narrow dialogs the details stack below the list.
 - **Comparison slider redesign** — the divider now takes its colour from the
   Adwaita accent (with a dark contrast seam for bright pages) and uses a slim
   pill instead of a large knob. The percentage label is gone, a click jumps to

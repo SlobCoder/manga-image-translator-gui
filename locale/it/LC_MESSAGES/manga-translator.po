@@ -773,3 +773,6 @@ msgstr "Immagine successiva"
 
 msgid "Übersetzt"
 msgstr "Tradotto"
+
+msgid "Modell auswählen"
+msgstr "Scegli modello"

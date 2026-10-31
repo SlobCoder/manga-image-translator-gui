@@ -773,3 +773,6 @@ msgstr "次の画像"
 
 msgid "Übersetzt"
 msgstr "翻訳済み"
+
+msgid "Modell auswählen"
+msgstr "モデルを選択"

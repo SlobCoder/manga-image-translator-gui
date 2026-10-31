@@ -596,3 +596,6 @@ msgstr "Nächstes Bild"
 
 msgid "Übersetzt"
 msgstr "Übersetzt"
+
+msgid "Modell auswählen"
+msgstr "Modell auswählen"
