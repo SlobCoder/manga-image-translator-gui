@@ -23,6 +23,10 @@ const MAX_NATURAL_WIDTH: i32 = 300;
 /// Reading speed of the marquee, in pixels per second.
 const SCROLL_SPEED_PX_PER_S: f64 = 60.0;
 
+/// Extra room after the last glyph. Without it the final character sits exactly
+/// on the right edge and is clipped by the overflow mask.
+const TAIL_PADDING: i32 = 12;
+
 /// Bounds for the animation duration, so short overflows do not race by and
 /// very long ids do not crawl.
 const MIN_DURATION_MS: u32 = 700;
@@ -159,7 +163,12 @@ mod imp {
                 let y = ((height - natural_height) / 2).max(0);
 
                 label.size_allocate(
-                    &gtk::Allocation::new(0, y, natural_width.max(width), natural_height),
+                    &gtk::Allocation::new(
+                        0,
+                        y,
+                        natural_width.max(width) + TAIL_PADDING,
+                        natural_height,
+                    ),
                     -1,
                 );
             }
@@ -221,7 +230,7 @@ mod imp {
                     return;
                 };
                 let (_, natural_width, _, _) = label.measure(gtk::Orientation::Horizontal, -1);
-                (natural_width - obj.width()) as f64
+                (natural_width + TAIL_PADDING - obj.width()) as f64
             };
 
             if overflow <= 1.0 {
@@ -234,6 +243,9 @@ mod imp {
 
             let target = adw::PropertyAnimationTarget::new(&*obj, SCROLL_OFFSET);
             let animation = adw::TimedAnimation::new(&*obj, 0.0, overflow, duration, target);
+            // Ease in and out symmetrically: with the default ease-out the
+            // turnaround at the end feels like a hard bounce.
+            animation.set_easing(adw::Easing::EaseInOutCubic);
             animation.set_alternate(true);
             // 0 repeats endlessly; `alternate` scrolls back and forth.
             animation.set_repeat_count(0);

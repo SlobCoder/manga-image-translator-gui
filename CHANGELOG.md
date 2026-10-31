@@ -64,6 +64,10 @@ All notable changes to this project will be documented in this file.
   `AdwSpinner`, which animates whenever it is visible.
 
 ### Fixed
+- **Marquee was too bouncy and clipped the last glyph** — the animation now
+  uses a symmetric ease-in-out curve instead of ease-out, and it scrolls 12 px
+  past the text width so the final character is never cut off by the overflow
+  mask.
 - **OpenRouter dialog separator moved while scrolling** — the detail column sized
   itself from its labels, so the divider wandered as the selected model
   changed. It now lives in a fixed 253 px viewport (one third of the 760 px
