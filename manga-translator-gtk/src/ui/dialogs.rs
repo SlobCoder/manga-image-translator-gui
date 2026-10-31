@@ -508,8 +508,30 @@ fn load_log_content(buffer: &gtk::TextBuffer, log_path: &Path, prev_count: Optio
         return 0;
     };
 
+    // Read at most the tail of the file. A big log would otherwise be read in
+    // full on every open, although only the last 500 lines are displayed.
+    const MAX_TAIL_BYTES: u64 = 256 * 1024;
     let mut content = String::new();
-    if file.read_to_string(&mut content).is_err() {
+    let len = file.metadata().map(|meta| meta.len()).unwrap_or(0);
+    if len > MAX_TAIL_BYTES {
+        use std::io::{Seek, SeekFrom};
+        if file.seek(SeekFrom::Start(len - MAX_TAIL_BYTES)).is_err() {
+            buffer.set_text(&i18n::t("Fehler beim Laden der Log-Datei."));
+            return 0;
+        }
+        let mut bytes = Vec::with_capacity(MAX_TAIL_BYTES as usize);
+        if file.read_to_end(&mut bytes).is_err() {
+            buffer.set_text(&i18n::t("Fehler beim Laden der Log-Datei."));
+            return 0;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        // The seek may land inside a line (or a UTF-8 sequence); drop the
+        // partial first line.
+        content = match text.split_once('\n') {
+            Some((_, rest)) => rest.to_string(),
+            None => text.into_owned(),
+        };
+    } else if file.read_to_string(&mut content).is_err() {
         buffer.set_text(&i18n::t("Fehler beim Laden der Log-Datei."));
         return 0;
     }
@@ -760,6 +782,10 @@ pub fn show_api_keys_dialog(
 ///   - 4-column grid of preset color swatches with labels
 ///   - Custom hex input with live preview and color chooser
 ///   - Active swatch indicator ring
+/// Options of the colour-scheme segmented control.
+const SCHEME_TOGGLES: &[(&str, &str)] =
+    &[("system", "System"), ("light", "Hell"), ("dark", "Dunkel")];
+
 pub fn show_accent_color_dialog(
     parent: &impl IsA<gtk::Widget>,
     config: Rc<RefCell<ConfigManager>>,
@@ -790,84 +816,45 @@ pub fn show_accent_color_dialog(
     scheme_label.set_xalign(0.0);
     content.append(&scheme_label);
 
-    let scheme_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
-    scheme_box.add_css_class("linked");
-    scheme_box.set_halign(gtk::Align::Start);
-
-    let btn_system = gtk::ToggleButton::with_label(&i18n::t("System"));
-    let btn_light = gtk::ToggleButton::with_label(&i18n::t("Hell"));
-    let btn_dark = gtk::ToggleButton::with_label(&i18n::t("Dunkel"));
-    btn_light.set_group(Some(&btn_system));
-    btn_dark.set_group(Some(&btn_system));
+    let scheme_group = adw::ToggleGroup::new();
+    scheme_group.set_halign(gtk::Align::Start);
+    for &(name, msgid) in SCHEME_TOGGLES {
+        let toggle = adw::Toggle::new();
+        toggle.set_name(Some(name));
+        toggle.set_label(Some(&i18n::t(msgid)));
+        scheme_group.add(toggle);
+    }
+    i18n::register_toggle_group(&scheme_group, SCHEME_TOGGLES);
 
     let current_scheme = config.borrow().settings.color_scheme.clone();
-    match current_scheme.as_str() {
-        "light" => btn_light.set_active(true),
-        "dark" => btn_dark.set_active(true),
-        _ => btn_system.set_active(true),
-    }
+    scheme_group.set_active_name(Some(match current_scheme.as_str() {
+        "light" => "light",
+        "dark" => "dark",
+        _ => "system",
+    }));
 
-    // Apply scheme: System
-    let config_scheme = config.clone();
-    let on_scheme_sys = on_scheme.clone();
-    let style_mgr = adw::StyleManager::default();
-    btn_system.connect_toggled(clone!(
+    scheme_group.connect_active_name_notify(clone!(
         #[strong]
-        style_mgr,
+        config,
         #[strong]
-        config_scheme,
-        move |btn| {
-            if btn.is_active() {
-                style_mgr.set_color_scheme(adw::ColorScheme::PreferLight);
-                config_scheme.borrow_mut().settings.color_scheme = "system".to_string();
-                config_scheme.borrow_mut().save_settings();
-                on_scheme_sys("system");
-            }
+        on_scheme,
+        move |group| {
+            let Some(name) = group.active_name() else {
+                return;
+            };
+            let scheme = match name.as_str() {
+                "light" => adw::ColorScheme::ForceLight,
+                "dark" => adw::ColorScheme::ForceDark,
+                _ => adw::ColorScheme::PreferLight,
+            };
+            adw::StyleManager::default().set_color_scheme(scheme);
+            let key = name.to_string();
+            config.borrow_mut().settings.color_scheme = key.clone();
+            config.borrow_mut().save_settings();
+            on_scheme(&key);
         }
     ));
-
-    // Apply scheme: Force Light
-    let config_scheme = config.clone();
-    let on_scheme_light = on_scheme.clone();
-    let style_mgr = adw::StyleManager::default();
-    btn_light.connect_toggled(clone!(
-        #[strong]
-        style_mgr,
-        #[strong]
-        config_scheme,
-        move |btn| {
-            if btn.is_active() {
-                style_mgr.set_color_scheme(adw::ColorScheme::ForceLight);
-                config_scheme.borrow_mut().settings.color_scheme = "light".to_string();
-                config_scheme.borrow_mut().save_settings();
-                on_scheme_light("light");
-            }
-        }
-    ));
-
-    // Apply scheme: Force Dark
-    let config_scheme = config.clone();
-    let on_scheme_dark = on_scheme.clone();
-    let style_mgr = adw::StyleManager::default();
-    btn_dark.connect_toggled(clone!(
-        #[strong]
-        style_mgr,
-        #[strong]
-        config_scheme,
-        move |btn| {
-            if btn.is_active() {
-                style_mgr.set_color_scheme(adw::ColorScheme::ForceDark);
-                config_scheme.borrow_mut().settings.color_scheme = "dark".to_string();
-                config_scheme.borrow_mut().save_settings();
-                on_scheme_dark("dark");
-            }
-        }
-    ));
-
-    scheme_box.append(&btn_system);
-    scheme_box.append(&btn_light);
-    scheme_box.append(&btn_dark);
-    content.append(&scheme_box);
+    content.append(&scheme_group);
 
     // ── Separator ──
     content.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
@@ -899,6 +886,13 @@ pub fn show_accent_color_dialog(
     }
     let swatch_provider = gtk::CssProvider::new();
     swatch_provider.load_from_data(&swatch_css);
+    // Register once: every add_provider_for_display() invalidates the whole
+    // style cascade, so doing it per swatch made the dialog crawl.
+    gtk::style_context_add_provider_for_display(
+        &grid.display(),
+        &swatch_provider,
+        gtk::STYLE_PROVIDER_PRIORITY_USER,
+    );
 
     let current_accent = config.borrow().settings.accent_color.clone();
 
@@ -919,13 +913,6 @@ pub fn show_accent_color_dialog(
             let safe = preset.name.replace('-', "_");
             btn.add_css_class(&format!("swatch-{safe}"));
         }
-
-        // Apply the shared swatch CSS provider
-        gtk::style_context_add_provider_for_display(
-            &btn.display(),
-            &swatch_provider,
-            gtk::STYLE_PROVIDER_PRIORITY_USER,
-        );
 
         // Mark active swatch
         if preset.name == current_accent {
@@ -984,9 +971,17 @@ pub fn show_accent_color_dialog(
         hex_entry.set_text(&current_accent);
     }
 
+    let preview_provider = gtk::CssProvider::new();
+    gtk::style_context_add_provider_for_display(
+        &preview_swatch.display(),
+        &preview_provider,
+        gtk::STYLE_PROVIDER_PRIORITY_USER,
+    );
     hex_entry.connect_changed(clone!(
         #[weak]
         preview_swatch,
+        #[strong]
+        preview_provider,
         move |entry| {
             let text = entry.text().to_string();
             if is_valid_hex_color(&text) {
@@ -994,13 +989,7 @@ pub fn show_accent_color_dialog(
                     ".accent-preview {{ background: {}; border-radius: 8px; min-width: 36px; min-height: 36px; }}",
                     text
                 );
-                let provider = gtk::CssProvider::new();
-                provider.load_from_data(&css);
-                gtk::style_context_add_provider_for_display(
-                    &preview_swatch.display(),
-                    &provider,
-                    gtk::STYLE_PROVIDER_PRIORITY_USER,
-                );
+                preview_provider.load_from_data(&css);
                 preview_swatch.set_visible(true);
             } else {
                 preview_swatch.set_visible(false);

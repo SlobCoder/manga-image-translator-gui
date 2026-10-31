@@ -44,6 +44,9 @@ All notable changes to this project will be documented in this file.
   right edge.
 
 ### Changed
+- **Colour scheme picker uses an AdwToggleGroup** — System/Hell/Dunkel in the
+  accent dialog now match the segmented controls in the preview and the model
+  picker; the accent swatches stay a grid of colour buttons.
 - **Consistent segmented controls** — the OpenRouter sort bar is an
   `AdwToggleGroup` now, matching the preview mode selector, instead of two rows
   of linked toggle buttons that used the accent colour.
@@ -67,6 +70,11 @@ All notable changes to this project will be documented in this file.
   `AdwSpinner`, which animates whenever it is visible.
 
 ### Fixed
+- **Dialog opening performance** — the accent dialog registered the same CSS
+  provider once per swatch and a fresh one on every keystroke in the hex field;
+  each registration invalidates the whole style cascade. Both now use a single
+  provider. The log viewer reads at most the last 256 KB instead of the whole
+  file before showing its last 500 lines.
 - **Marquee was too bouncy and clipped the last glyph** — the animation now
   uses a symmetric ease-in-out curve instead of ease-out, and it scrolls 12 px
   past the text width so the final character is never cut off by the overflow
