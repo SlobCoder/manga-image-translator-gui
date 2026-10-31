@@ -48,8 +48,9 @@ All notable changes to this project will be documented in this file.
 - **Comparison did not work after a restart** — selecting a page in an already
   translated chapter only loaded the original, because the GTK frontend never
   looked for the translated counterpart. It now searches the current session's
-  outputs and the sibling `<folder>-translated` directory, loads both images and
-  opens the comparison, matching the GPUI frontend.
+  outputs, the sibling `<folder>-translated` directory and the configured output
+  directory, loads both images and opens the comparison, matching the GPUI
+  frontend.
 - **Invalid CSS property in the scroll indicators** — `pointer-events: none`
   is not a GTK4 CSS property and produced a `Gtk-WARNING` on every start. The
   scroll indicators are now made non-targetable in code instead.

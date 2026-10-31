@@ -876,8 +876,13 @@ fn build_status_bar(
 ///
 /// Checks the files written by the current session first (the backend may use a
 /// custom output directory), then the sibling `<folder>-translated` directory
-/// the backend writes to by default.
-fn find_translated_path(original: &Path, session_outputs: &[PathBuf]) -> Option<PathBuf> {
+/// the backend writes to by default, then a configured flat output directory.
+fn find_translated_path(
+    original: &Path,
+    session_outputs: &[PathBuf],
+    configured_output: Option<&Path>,
+) -> Option<PathBuf> {
+    let file_name = original.file_name()?;
     let stem = original.file_stem()?;
 
     if let Some(path) = session_outputs
@@ -891,8 +896,20 @@ fn find_translated_path(original: &Path, session_outputs: &[PathBuf]) -> Option<
     let folder = parent.file_name()?.to_string_lossy();
     let candidate = parent
         .with_file_name(format!("{}-translated", folder))
-        .join(original.file_name()?);
-    candidate.is_file().then_some(candidate)
+        .join(file_name);
+    if candidate.is_file() {
+        return Some(candidate);
+    }
+
+    // A custom output directory is flat: the backend writes <output>/<file>.
+    if let Some(dir) = configured_output {
+        let candidate = dir.join(file_name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 fn connect_file_browser_signals(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCell<WindowState>>) {
@@ -913,7 +930,16 @@ fn connect_file_browser_signals(widgets: &Rc<RefCell<Widgets>>, state: &Rc<RefCe
             // comparison works after a restart and not only right after a
             // translation in this session.
             if let Some(first) = files.first() {
-                let translated = find_translated_path(first, &st.borrow().translated_outputs);
+                let (outputs, output_dir) = {
+                    let s = st.borrow();
+                    let cfg = s.config.borrow();
+                    (
+                        s.translated_outputs.clone(),
+                        cfg.settings.output_directory.clone(),
+                    )
+                };
+                let configured = (!output_dir.is_empty()).then(|| PathBuf::from(output_dir));
+                let translated = find_translated_path(first, &outputs, configured.as_deref());
                 w.borrow()
                     .preview
                     .load_pair(Some(first), translated.as_deref());
@@ -2140,11 +2166,11 @@ mod tests {
 
         let original = chapter.join("001.png");
         fs::write(&original, b"x").unwrap();
-        assert_eq!(find_translated_path(&original, &[]), None);
+        assert_eq!(find_translated_path(&original, &[], None), None);
 
         let output = translated.join("001.png");
         fs::write(&output, b"y").unwrap();
-        assert_eq!(find_translated_path(&original, &[]), Some(output));
+        assert_eq!(find_translated_path(&original, &[], None), Some(output));
 
         fs::remove_dir_all(&root).unwrap();
     }
@@ -2159,8 +2185,34 @@ mod tests {
 
         let session = root.join("custom-output").join("001.png");
         assert_eq!(
-            find_translated_path(&original, &[session.clone()]),
+            find_translated_path(&original, &[session.clone()], None),
             Some(session)
+        );
+
+        fs::remove_dir_all(&root).unwrap();
+    }
+
+    #[test]
+    fn finds_translation_in_the_configured_output_directory() {
+        let root = std::env::temp_dir().join(format!("mtt-output-{}", std::process::id()));
+        let chapter = root.join("chapter");
+        let output_dir = root.join("out");
+        fs::create_dir_all(&chapter).unwrap();
+        fs::create_dir_all(&output_dir).unwrap();
+
+        let original = chapter.join("001.png");
+        fs::write(&original, b"x").unwrap();
+        assert_eq!(
+            find_translated_path(&original, &[], Some(&output_dir)),
+            None
+        );
+
+        // The backend writes a flat <output>/<file> in this mode.
+        let output = output_dir.join("001.png");
+        fs::write(&output, b"y").unwrap();
+        assert_eq!(
+            find_translated_path(&original, &[], Some(&output_dir)),
+            Some(output)
         );
 
         fs::remove_dir_all(&root).unwrap();
